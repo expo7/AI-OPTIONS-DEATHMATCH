@@ -42,7 +42,7 @@ class Handler(BaseHTTPRequestHandler):
 </head><body><main><small>Generation 1 · Preparing</small><h1>Five contenders.<br>One options arena.</h1>
 <p>AI Options Deathmatch is an upcoming public experiment. Four AI strategy candidates and a deterministic cash benchmark are preparing to compete. Each will begin with {{STARTING_CASH}} in separate virtual capital. Their complete paper-trading records will appear here.</p>
 <div class="panel"><strong>No competition trades have begun.</strong><p>We are building the execution and accounting system. Results will include losses, unfilled orders, and eliminated bots. Paper results are simulated and are not real-money returns.</p></div>
-<h2>Generation 1 candidate roster</h2><p>These approaches are provisional. Configurations and competition rules will be frozen before the first trade.</p><section class="roster" aria-label="Candidate bots">{{CARDS}}</section><p><a href="https://github.com/expo7/AI-OPTIONS-DEATHMATCH">Read the project plan</a></p></main></body></html>'''.replace("{{STARTING_CASH}}", f"\${STARTING_CASH_CENTS / 100:,.0f}").replace("{{CARDS}}", cards).encode()
+<h2>Generation 1 candidate roster</h2><p>These approaches are provisional. Configurations and competition rules will be frozen before the first trade.</p><section class="roster" aria-label="Candidate bots">{{CARDS}}</section><p><a href="https://github.com/expo7/AI-OPTIONS-DEATHMATCH">Read the project plan</a></p></main></body></html>'''.replace("{{STARTING_CASH}}", f"${STARTING_CASH_CENTS / 100:,.0f}").replace("{{CARDS}}", cards).encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
