@@ -1,0 +1,4 @@
+# Temporary IP-only HTTP configuration. Replace with a domain for automatic TLS.
+:80 {
+    reverse_proxy 127.0.0.1:8000
+}
