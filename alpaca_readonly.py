@@ -60,6 +60,13 @@ class PaperReader:
     def positions(self):
         return self.get("/v2/positions")
 
+    def open_orders(self):
+        # Alpaca caps a page at 500; fail closed if more may exist.
+        orders = self.get("/v2/orders", {"status": "open", "limit": 500})
+        if not isinstance(orders, list) or len(orders) == 500:
+            raise LedgerError("open order inventory may be incomplete")
+        return orders
+
     def recent_fills(self, page_size=100):
         if not isinstance(page_size, int) or not 1 <= page_size <= 100:
             raise LedgerError("page size outside 1..100")
@@ -108,6 +115,7 @@ def main():
     reader = PaperReader(load_credentials(args.env_file))
     account = reader.account()
     positions = reader.positions()
+    open_orders = reader.open_orders()
     fills = reader.recent_fills()
     # Deliberately print no keys, account identifier, order IDs, or individual trades.
     print(json.dumps({
@@ -115,6 +123,7 @@ def main():
         "account_status": account.get("status"),
         "options_trading_level": account.get("options_trading_level"),
         "open_positions": len(positions),
+        "open_orders": len(open_orders),
         "recent_fill_activities": len(fills),
         "note": "A count of 100 fills may mean more history exists; no orders were placed.",
     }, indent=2))
