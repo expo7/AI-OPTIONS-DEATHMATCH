@@ -20,6 +20,14 @@ systemctl daemon-reload
 systemctl enable --now deathmatch caddy
 systemctl restart deathmatch caddy
 
-curl -fsS http://127.0.0.1:8000/healthz | grep -F "$revision"
-curl -fsS http://127.0.0.1/ | grep -F 'No competition trades have begun' >/dev/null
+ready=false
+for attempt in {1..20}; do
+    if curl -fsS http://127.0.0.1:8000/healthz 2>/dev/null | grep -Fq "$revision" &&
+       curl -fsS http://127.0.0.1/ 2>/dev/null | grep -Fq 'No competition trades have begun'; then
+        ready=true
+        break
+    fi
+    sleep 1
+done
+[[ $ready == true ]] || { echo 'Internal or proxy health check failed after 20 attempts' >&2; exit 1; }
 echo "Internal deployment verified: $revision"
