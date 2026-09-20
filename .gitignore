@@ -1,0 +1,10 @@
+# Generated Python runtime files
+__pycache__/
+*.py[cod]
+
+# Local secrets and development databases
+.env
+.env.*
+!.env.example
+*.sqlite3
+*.db
