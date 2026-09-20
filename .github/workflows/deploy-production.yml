@@ -1,5 +1,7 @@
 name: Verify and deploy production
 on:
+  push:
+    branches: [master]
   workflow_dispatch:
 
 jobs:
@@ -16,7 +18,6 @@ jobs:
   deploy:
     needs: verify
     runs-on: ubuntu-latest
-    # Keep the workflow safe before its dedicated CI identity is configured.
     environment: production
     steps:
       - name: Install dedicated SSH identity and pinned host key
