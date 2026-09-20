@@ -1,0 +1,52 @@
+name: Verify and deploy production
+on:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m unittest discover -s tests
+      - run: bash -n deploy/bootstrap-server.sh deploy/release.sh deploy/install-release.sh
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    # Keep the workflow safe before its dedicated CI identity is configured.
+    environment: production
+    steps:
+      - name: Install dedicated SSH identity and pinned host key
+        env:
+          PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
+          PROD_KNOWN_HOSTS: ${{ secrets.PROD_KNOWN_HOSTS }}
+        run: |
+          test -n "$PROD_SSH_KEY" && test -n "$PROD_KNOWN_HOSTS"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$PROD_SSH_KEY" >~/.ssh/id_ed25519
+          printf '%s\n' "$PROD_KNOWN_HOSTS" >~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+      - name: Deploy exact verified commit
+        env:
+          PROD_HOST: ${{ secrets.PROD_HOST }}
+          PROD_USER: ${{ secrets.PROD_USER }}
+          REVISION: ${{ github.sha }}
+        run: |
+          test -n "$PROD_HOST" && test -n "$PROD_USER"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$PROD_USER@$PROD_HOST" "sudo /usr/local/sbin/deathmatch-release $REVISION"
+      - name: Verify public route and revision
+        env:
+          PROD_HOST: ${{ secrets.PROD_HOST }}
+          REVISION: ${{ github.sha }}
+        run: |
+          for attempt in {1..20}; do
+            if curl -fsS --max-time 5 "http://$PROD_HOST/healthz" | grep -Fq "\"commit\": \"$REVISION\"" &&
+               curl -fsS --max-time 5 "http://$PROD_HOST/" | grep -Fq 'No competition trades have begun'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
