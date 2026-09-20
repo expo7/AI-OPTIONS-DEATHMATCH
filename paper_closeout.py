@@ -33,6 +33,21 @@ def snapshot(account, positions, path):
         handle.write("\n")
 
 
+def inspect_closeout(reader):
+    positions = reader.positions()
+    orders = reader.open_orders()
+    return {
+        "positions": [
+            {key: p.get(key) for key in ("symbol", "asset_class", "qty", "side")}
+            for p in positions
+        ],
+        "open_orders": [
+            {key: o.get(key) for key in ("symbol", "status", "side", "qty", "type")}
+            for o in orders
+        ],
+    }
+
+
 def close_legacy_positions(reader, execute, snapshot_path, opener=urlopen):
     account = reader.account()
     positions = reader.positions()
@@ -77,12 +92,16 @@ def main():
     parser = argparse.ArgumentParser(description="Preview or liquidate legacy Deathmatch paper positions")
     parser.add_argument("--env-file", default="/etc/ai-options-deathmatch/alpaca.env")
     parser.add_argument("--execute", action="store_true", help="Send one paper-only liquidation request")
+    parser.add_argument("--details", action="store_true", help="Read-only list of positions and pending order statuses")
     parser.add_argument("--snapshot", default="/var/lib/ai-options-deathmatch/legacy-closeout.json")
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error("run as root on the Deathmatch VPS")
     reader = PaperReader(load_credentials(args.env_file))
-    print(json.dumps(close_legacy_positions(reader, args.execute, args.snapshot), indent=2))
+    if args.details and args.execute:
+        parser.error("--details cannot be combined with --execute")
+    result = inspect_closeout(reader) if args.details else close_legacy_positions(reader, args.execute, args.snapshot)
+    print(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":
