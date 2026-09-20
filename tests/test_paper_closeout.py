@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from paper_closeout import close_legacy_positions
+from paper_closeout import close_legacy_positions, inspect_closeout
 from ledger import LedgerError
 
 
@@ -42,6 +42,12 @@ class CloseoutTests(unittest.TestCase):
             result = close_legacy_positions(Reader(), False, path, opener=lambda *args, **kwargs: self.fail("DELETE called"))
             self.assertEqual(result["action"], "preview")
             self.assertFalse(path.exists())
+
+    def test_inspection_is_read_only_and_limits_fields(self):
+        reader = Reader(orders=[{"symbol": "SPY", "status": "accepted", "id": "private-id"}])
+        result = inspect_closeout(reader)
+        self.assertEqual(result["open_orders"], [{"symbol": "SPY", "status": "accepted", "side": None, "qty": None, "type": None}])
+        self.assertNotIn("id", result["open_orders"][0])
 
     def test_open_orders_block_liquidation(self):
         with tempfile.TemporaryDirectory() as directory:
