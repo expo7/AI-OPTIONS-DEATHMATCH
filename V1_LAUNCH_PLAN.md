@@ -9,7 +9,7 @@ Run five distinct options-trading bots in a public, auditable paper-trading comp
 ## Confirmed product decisions
 
 - Repository: `expo7/AI-OPTIONS-DEATHMATCH`; existing default branch: `master`. Choose a canonical production branch before configuring deployment.
-- One **dedicated** Alpaca paper account acts as the execution pool. Its approximately $7 million balance is capacity, not a competitor's score. Never connect a live account by default or mix Quantelle/manual orders into this pool.
+- The existing Alpaca paper account acts as the execution pool after exclusive-use verification and a timestamped launch baseline. Preserve its approximately $6.8 million historical paper balance and trading history; no reset is required. The broker balance is capacity, never a competitor's score. Resolve legacy open orders and flatten legacy positions before launch if this account is exclusively available; never close Quantelle or another active strategy's positions. Never connect a live account by default.
 - The application owns separate virtual cash, positions, equity, and drawdown for each bot. Broker order and fill events, linked by unique client order IDs, are the execution evidence.
 - Start on a 1 vCPU / 1 GB RAM VPS and measure actual headroom before upgrading. Use a simple runtime rather than copying Quantelle's full stack.
 - The public site must label all results paper trading and disclose the shared-account accounting model.
@@ -53,7 +53,7 @@ Follow the [Quantelle-derived deployment blueprint](https://chatgpt.com/api/libr
 ## Launch gates
 
 1. Repository conventions, VPS, domain/TLS, backups, and exact-revision deployment verified by a harmless release.
-2. Dedicated paper account and options data entitlement validated; no live keys present.
+2. Existing paper account confirmed exclusive, legacy orders resolved, positions flattened, timestamped baseline captured, and options data entitlement validated; no live keys present.
 3. Same-contract opposing-order and partial-fill behavior tested; reconciliation passes.
 4. One complete paper order → broker fill → attributed ledger → public result verified.
 5. Five bots operate from a shared market snapshot and public results update.
