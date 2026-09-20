@@ -21,14 +21,15 @@ jobs:
     steps:
       - name: Install dedicated SSH identity and pinned host key
         env:
-          PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
+          PROD_SSH_KEY_B64: ${{ secrets.PROD_SSH_KEY_B64 }}
           PROD_KNOWN_HOSTS: ${{ secrets.PROD_KNOWN_HOSTS }}
         run: |
-          test -n "$PROD_SSH_KEY" && test -n "$PROD_KNOWN_HOSTS"
+          test -n "$PROD_SSH_KEY_B64" && test -n "$PROD_KNOWN_HOSTS"
           install -d -m 700 ~/.ssh
-          printf '%s\n' "$PROD_SSH_KEY" >~/.ssh/id_ed25519
+          printf '%s' "$PROD_SSH_KEY_B64" | base64 --decode >~/.ssh/id_ed25519
           printf '%s\n' "$PROD_KNOWN_HOSTS" >~/.ssh/known_hosts
           chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+          ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null
       - name: Deploy exact verified commit
         env:
           PROD_HOST: ${{ secrets.PROD_HOST }}
