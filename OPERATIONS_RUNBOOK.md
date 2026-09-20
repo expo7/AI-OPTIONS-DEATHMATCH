@@ -16,9 +16,9 @@ Run `python3 -m unittest discover -s tests` on the intended revision. Refuse a d
 
 Use `systemctl status deathmatch` and `journalctl -u deathmatch` for the app, and `systemctl status caddy` for the proxy. Redeploy the last known-good commit rather than editing production files. Application rollback and future database recovery are separate operations.
 
-## Automated releases (preparation)
+## Automated releases
 
-The workflow is manual-only until a dedicated CI SSH identity is installed and verified. On the VPS, checkout the approved revision and run `bash deploy/install-release.sh` as root to install the root-owned guarded release command. This is a one-time setup. It refuses an unexpected hostname or checkout owner.
+The workflow deploys verified `master` pushes and supports manual dispatch. A dedicated CI SSH identity is installed and verified. On the VPS, checkout the approved revision and run `bash deploy/install-release.sh` as root to install the root-owned guarded release command. This is a one-time setup. It refuses an unexpected hostname or checkout owner.
 
 Create a dedicated Ed25519 keypair for this repository's GitHub Actions identity. Add only the public key to `/home/deploy/.ssh/authorized_keys` on this VPS; store a single-line Base64 encoding of the private key only in GitHub's `production` environment secret `PROD_SSH_KEY_B64`. Add environment secrets `PROD_HOST=172.236.226.103`, `PROD_USER=deploy`, and `PROD_KNOWN_HOSTS` containing the verified ED25519 host-key line. Verify the key fingerprint independently against the first trusted SSH connection before saving it; never accept a fresh key blindly inside CI. Do not use Quantelle's key or secrets. Trigger the workflow manually once, verify both public routes and commit, then enable `push` on `master` after success.
 
