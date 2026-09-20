@@ -2,8 +2,12 @@
 
 A planned public competition between AI-driven options strategies using **paper trading**. Five bots will start with equal virtual capital and rules, trade through a dedicated shared Alpaca paper account, and publish their full results, including losses and eliminated strategies.
 
-**Current state:** V1 planning; no live competition or deployed website yet.
+**Current state:** The [public preparation page](http://172.236.226.103/) is online. No competition trades have begun. The first release was verified at commit `81944f2570685a6d8aa93619f4a27927a4c5fc86` on 2026-09-20.
 
-Read the [V1 architecture and launch plan](V1_LAUNCH_PLAN.md) for the shared-account attribution rules, 1 GB VPS target, initial competition rules, and launch gates.
+Read the [V1 architecture and launch plan](V1_LAUNCH_PLAN.md) for shared-account attribution, the 1 GB VPS target, rules, and launch gates. [SOURCE_OF_TRUTH.md](SOURCE_OF_TRUTH.md) tracks verified state and next work.
 
-The broker account is an execution pool. Each competitor's cash, positions, and performance are tracked separately in the application. Results must never be represented as real-money performance.
+The broker account is an execution pool. Each competitor's cash, positions, and performance will be tracked separately in the application. Results must never be represented as real-money performance.
+
+## First release
+
+The preparation page uses Python's standard library and Caddy; it contains no trading integration. Run `python3 -m unittest discover -s tests` to check public routes. `deploy/bootstrap-server.sh` provisions and internally verifies this initial release on the dedicated Linode. Further releases need an automated exact-revision workflow.
