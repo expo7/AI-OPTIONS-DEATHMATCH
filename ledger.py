@@ -106,6 +106,21 @@ class Ledger:
                 decision_id TEXT PRIMARY KEY REFERENCES decisions(id),
                 client_order_id TEXT NOT NULL UNIQUE REFERENCES orders(client_order_id)
             );
+            CREATE TABLE IF NOT EXISTS exit_decisions (
+                id TEXT PRIMARY KEY,
+                bot_id TEXT NOT NULL REFERENCES bots(id),
+                bot_version_id TEXT NOT NULL REFERENCES bot_versions(id),
+                option_symbol TEXT NOT NULL,
+                quantity INTEGER NOT NULL CHECK(quantity > 0),
+                limit_cents INTEGER NOT NULL CHECK(limit_cents > 0),
+                reason TEXT NOT NULL CHECK(reason IN ('thesis_invalidation','risk_limit','target','expiry_rule','operator')),
+                public_rationale TEXT NOT NULL CHECK(length(public_rationale) BETWEEN 1 AND 500),
+                decided_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS exit_decision_orders (
+                exit_decision_id TEXT PRIMARY KEY REFERENCES exit_decisions(id),
+                client_order_id TEXT NOT NULL UNIQUE REFERENCES orders(client_order_id)
+            );
             CREATE TABLE IF NOT EXISTS launch_baselines (
                 generation INTEGER PRIMARY KEY CHECK(generation > 0),
                 captured_at TEXT NOT NULL UNIQUE,
@@ -131,6 +146,14 @@ class Ledger:
                 BEFORE UPDATE ON decision_orders BEGIN SELECT RAISE(ABORT, 'decision order links are immutable'); END;
             CREATE TRIGGER IF NOT EXISTS immutable_decision_orders_delete
                 BEFORE DELETE ON decision_orders BEGIN SELECT RAISE(ABORT, 'decision order links are immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS immutable_exit_decisions_update
+                BEFORE UPDATE ON exit_decisions BEGIN SELECT RAISE(ABORT, 'exit decisions are immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS immutable_exit_decisions_delete
+                BEFORE DELETE ON exit_decisions BEGIN SELECT RAISE(ABORT, 'exit decisions are immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS immutable_exit_decision_orders_update
+                BEFORE UPDATE ON exit_decision_orders BEGIN SELECT RAISE(ABORT, 'exit order links are immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS immutable_exit_decision_orders_delete
+                BEFORE DELETE ON exit_decision_orders BEGIN SELECT RAISE(ABORT, 'exit order links are immutable'); END;
             CREATE TRIGGER IF NOT EXISTS immutable_launch_baselines_update
                 BEFORE UPDATE ON launch_baselines BEGIN SELECT RAISE(ABORT, 'launch baselines are immutable'); END;
             CREATE TRIGGER IF NOT EXISTS immutable_launch_baselines_delete
@@ -217,6 +240,65 @@ class Ledger:
                 raise LedgerError("broker order ID changed")
             self.db.execute("UPDATE orders SET status='accepted',broker_order_id=? WHERE client_order_id=?", (broker_order_id, client_order_id))
             self.db.execute("COMMIT")
+        except BaseException:
+            self.db.execute("ROLLBACK")
+            raise
+
+    def record_exit_decision(self, decision_id, bot_id, bot_version_id, symbol, quantity,
+                             limit_cents, reason, public_rationale, decided_at):
+        reasons = {"thesis_invalidation", "risk_limit", "target", "expiry_rule", "operator"}
+        if not decision_id or not symbol or reason not in reasons or not decided_at or \
+           not isinstance(quantity, int) or quantity <= 0 or \
+           not isinstance(limit_cents, int) or limit_cents <= 0 or \
+           not isinstance(public_rationale, str) or not 1 <= len(public_rationale) <= 500:
+            raise LedgerError("invalid exit decision")
+        version = self.db.execute("SELECT bot_id FROM bot_versions WHERE id=?", (bot_version_id,)).fetchone()
+        if not version or version["bot_id"] != bot_id:
+            raise LedgerError("exit decision bot does not match frozen bot version")
+        values = (decision_id, bot_id, bot_version_id, symbol, quantity, limit_cents,
+                  reason, public_rationale, decided_at)
+        try:
+            self.db.execute("INSERT INTO exit_decisions VALUES (?,?,?,?,?,?,?,?,?)", values)
+            return True
+        except sqlite3.IntegrityError as error:
+            existing = self.db.execute("SELECT * FROM exit_decisions WHERE id=?", (decision_id,)).fetchone()
+            if existing and tuple(existing) == values:
+                return False
+            raise LedgerError("exit decision conflicts with immutable record") from error
+
+    def reserve_exit_order(self, client_order_id, exit_decision_id):
+        decision = self.db.execute("SELECT * FROM exit_decisions WHERE id=?", (exit_decision_id,)).fetchone()
+        if not decision:
+            raise LedgerError("exit decision is missing")
+        existing = self.db.execute("SELECT * FROM orders WHERE client_order_id=?", (client_order_id,)).fetchone()
+        expected = (decision["bot_id"], decision["option_symbol"], "sell",
+                    decision["quantity"], decision["limit_cents"])
+        if existing:
+            link = self.db.execute(
+                "SELECT exit_decision_id FROM exit_decision_orders WHERE client_order_id=?",
+                (client_order_id,),
+            ).fetchone()
+            if tuple(existing[key] for key in ("bot_id", "symbol", "side", "quantity", "limit_cents")) == expected \
+               and link and link["exit_decision_id"] == exit_decision_id:
+                return False
+            raise LedgerError("exit client order ID reused for different intent")
+        if self.position(decision["bot_id"], decision["option_symbol"]) < decision["quantity"]:
+            raise LedgerError("bot does not own enough contracts for exit")
+        if self.db.execute(
+            "SELECT 1 FROM orders WHERE symbol=? AND status IN ('reserved','accepted','partial') LIMIT 1",
+            (decision["option_symbol"],),
+        ).fetchone():
+            raise LedgerError("another order for this exact contract is unresolved")
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            self.db.execute(
+                """INSERT INTO orders(client_order_id,bot_id,symbol,side,quantity,limit_cents,status)
+                   VALUES (?,?,?,?,?,?,'reserved')""", (client_order_id, *expected),
+            )
+            self.db.execute("INSERT INTO exit_decision_orders VALUES (?,?)",
+                            (exit_decision_id, client_order_id))
+            self.db.execute("COMMIT")
+            return True
         except BaseException:
             self.db.execute("ROLLBACK")
             raise

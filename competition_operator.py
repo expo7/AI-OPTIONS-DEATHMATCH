@@ -11,7 +11,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from alpaca_readonly import PaperReader, load_credentials, premium_cents, sync_fill_activities
-from alpaca_submit import PaperSubmitter, submit_reserved_order
+from alpaca_submit import PaperSubmitter, submit_reserved_exit, submit_reserved_order
 from bots import BOTS
 from generation_one import BOT_RULES, COMMON_RULES, GENERATION
 from ledger import Ledger, LedgerError
@@ -111,6 +111,32 @@ def stage_plan(ledger, plan):
 def submit(ledger, env_file, client_order_id, confirmation):
     credentials = load_credentials(env_file)
     broker_id = submit_reserved_order(
+        ledger, PaperReader(credentials), PaperSubmitter(credentials, confirmation), client_order_id
+    )
+    return {"client_order_id": client_order_id, "accepted": bool(broker_id)}
+
+
+def stage_exit(ledger, bot_id, symbol, quantity, limit_cents, reason, rationale, decided_at=None):
+    """Migrate exit tables and freeze one supervised closing reservation."""
+    if bot_id not in BOT_RULES:
+        raise LedgerError("unknown contender")
+    ledger.initialize()
+    timestamp = decided_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    token = timestamp.replace("-", "").replace(":", "").replace(".", "").replace("+", "")[-14:]
+    decision_id = f"exit-g{GENERATION}-{bot_id}-{token}"
+    client_id = f"dm-g{GENERATION}-exit-{bot_id}-{token}"
+    ledger.record_exit_decision(
+        decision_id, bot_id, BOT_RULES[bot_id]["version_id"], symbol, quantity,
+        limit_cents, reason, rationale, timestamp,
+    )
+    ledger.reserve_exit_order(client_id, decision_id)
+    return {"exit_decision_id": decision_id, "reserved_order": client_id,
+            "symbol": symbol, "quantity": quantity, "limit_cents": limit_cents}
+
+
+def submit_exit(ledger, env_file, client_order_id, confirmation):
+    credentials = load_credentials(env_file)
+    broker_id = submit_reserved_exit(
         ledger, PaperReader(credentials), PaperSubmitter(credentials, confirmation), client_order_id
     )
     return {"client_order_id": client_order_id, "accepted": bool(broker_id)}
@@ -229,6 +255,17 @@ def main():
     send = commands.add_parser("submit")
     send.add_argument("client_order_id")
     send.add_argument("--confirm", required=True)
+    exit_stage = commands.add_parser("stage-exit")
+    exit_stage.add_argument("--bot", required=True)
+    exit_stage.add_argument("--symbol", required=True)
+    exit_stage.add_argument("--quantity", required=True, type=int)
+    exit_stage.add_argument("--limit-cents", required=True, type=int)
+    exit_stage.add_argument("--reason", required=True,
+                            choices=("thesis_invalidation", "risk_limit", "target", "expiry_rule", "operator"))
+    exit_stage.add_argument("--rationale", required=True)
+    exit_send = commands.add_parser("submit-exit")
+    exit_send.add_argument("client_order_id")
+    exit_send.add_argument("--confirm", required=True)
     commands.add_parser("sync")
     marking = commands.add_parser("mark")
     marking.add_argument("--public-results", default="/var/lib/ai-options-deathmatch-public/results.json")
@@ -240,6 +277,11 @@ def main():
             result = stage_plan(ledger, json.loads(args.plan.read_text()))
         elif args.command == "submit":
             result = submit(ledger, args.env_file, args.client_order_id, args.confirm)
+        elif args.command == "stage-exit":
+            result = stage_exit(ledger, args.bot, args.symbol, args.quantity, args.limit_cents,
+                                args.reason, args.rationale)
+        elif args.command == "submit-exit":
+            result = submit_exit(ledger, args.env_file, args.client_order_id, args.confirm)
         elif args.command == "sync":
             result = sync(ledger, args.env_file)
         else:

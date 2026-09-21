@@ -80,4 +80,22 @@ sudo bash deploy/install-operations.sh
 
 The timer checks Alpaca's market clock and exits without touching the ledger when the market is closed. While open, it synchronizes attributed fills before recording and publishing a common mark. It never stages decisions or submits, replaces, or cancels orders.
 
+## Supervised exits
+
+Stage a closing limit order only after reviewing the public reason and current quote:
+
+```bash
+python3 competition_operator.py stage-exit --bot BOT --symbol OCC_SYMBOL \
+  --quantity 1 --limit-cents PRICE --reason operator --rationale "PUBLIC REASON"
+```
+
+Review the returned tagged reservation, then explicitly submit it to paper trading:
+
+```bash
+python3 competition_operator.py submit-exit CLIENT_ORDER_ID \
+  --confirm ENABLE_DEATHMATCH_PAPER_ORDERS
+```
+
+The exit boundary cannot sell another bot's holdings or more contracts than the attributed bot owns. It requires an immutable exit decision, an exact linked reservation, a flat open-order inventory, live broker-to-ledger reconciliation, the paper endpoint, and the explicit confirmation token.
+
 The launch cycle permits at most one buy. It requires all five decisions, forces the cash benchmark to decline, checks expiry, open interest, volume, spread, premium, and exact frozen-ask pricing, and fails closed if broker inventory or local attribution does not reconcile.

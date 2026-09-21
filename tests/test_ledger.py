@@ -164,6 +164,23 @@ class SharedAccountLedgerTest(unittest.TestCase):
             "SELECT * FROM orders WHERE client_order_id='dm-g1-alpha-2'"
         ).fetchone())
 
+    def test_exit_decision_is_immutable_and_requires_owned_quantity(self):
+        self.ledger.record_bot_version("alpha-g1", "alpha", 1, {"strategy": "trend"}, WHEN)
+        self.buy("alpha", "alpha-buy", "broker-buy", "fill-buy")
+        self.assertTrue(self.ledger.record_exit_decision(
+            "exit-1", "alpha", "alpha-g1", SYMBOL, 1, 220, "operator",
+            "Supervised exit selected after review.", WHEN,
+        ))
+        self.assertTrue(self.ledger.reserve_exit_order("dm-g1-exit-alpha-1", "exit-1"))
+        self.assertFalse(self.ledger.reserve_exit_order("dm-g1-exit-alpha-1", "exit-1"))
+        with self.assertRaises(Exception):
+            self.ledger.db.execute("UPDATE exit_decisions SET limit_cents=221 WHERE id='exit-1'")
+        self.ledger.close_order("dm-g1-exit-alpha-1", "canceled")
+        with self.assertRaises(LedgerError):
+            self.ledger.record_exit_decision(
+                "exit-2", "beta", "alpha-g1", SYMBOL, 1, 220, "operator", "Invalid bot.", WHEN,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from alpaca_readonly import PAPER_URL
-from alpaca_submit import EXECUTION_ENABLE_TOKEN, PaperSubmitter, submit_reserved_order
+from alpaca_submit import EXECUTION_ENABLE_TOKEN, PaperSubmitter, submit_reserved_exit, submit_reserved_order
 from ledger import Ledger, LedgerError
 
 
@@ -142,6 +142,31 @@ class GuardedPaperSubmitterTest(unittest.TestCase):
             self.ledger.record_launch_baseline(1, WHEN, "ACTIVE", 1, 0)
         with self.assertRaises(LedgerError):
             self.ledger.record_launch_baseline(1, WHEN, "SUSPENDED", 0, 0)
+
+    def test_attributed_exit_posts_only_owned_sell(self):
+        self.ledger.record_launch_baseline(1, WHEN, "ACTIVE", 0, 0)
+        self.ledger.accept_order("dm-g1-trend-0001", "broker-buy")
+        self.ledger.record_fill("fill-buy", "dm-g1-trend-0001", 1, 200, WHEN)
+        self.ledger.record_exit_decision(
+            "exit-1", "trend", "g1-trend-v1", SYMBOL, 1, 225, "operator",
+            "Supervised closing order.", WHEN,
+        )
+        self.ledger.reserve_exit_order("dm-g1-exit-trend-0001", "exit-1")
+        calls = []
+        response = {"id": "broker-sell", "client_order_id": "dm-g1-exit-trend-0001",
+                    "type": "limit", "status": "new", "symbol": SYMBOL, "side": "sell",
+                    "qty": "1", "limit_price": "2.25"}
+        def opener(request, timeout):
+            calls.append(json.loads(request.data))
+            return FakeResponse(json.dumps(response).encode())
+        broker_id = submit_reserved_exit(
+            self.ledger, FakeReader(positions=[{"symbol": SYMBOL, "qty": "1"}]),
+            PaperSubmitter(self.credentials, EXECUTION_ENABLE_TOKEN, opener=opener),
+            "dm-g1-exit-trend-0001",
+        )
+        self.assertEqual(broker_id, "broker-sell")
+        self.assertEqual(calls[0]["side"], "sell")
+        self.assertEqual(calls[0]["limit_price"], "2.25")
 
 
 if __name__ == "__main__":
