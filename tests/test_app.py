@@ -56,6 +56,12 @@ class PublicRoutesTest(unittest.TestCase):
             ledger = Ledger(path)
             ledger.initialize()
             ledger.add_bot("trend", 1_000_000)
+            ledger.record_bot_version("trend-g1", "trend", 1, {"strategy": "trend"}, "2026-09-21T15:00:00Z")
+            ledger.record_opportunity("opp-1", "2026-09-21T15:30:00Z", "2026-09-21T15:30:00Z", {"symbol": "SPY"})
+            ledger.record_decision(
+                "decision-1", "opp-1", "trend", "trend-g1", "decline",
+                "The trend was mixed, so no option qualified.", "2026-09-21T15:35:00Z",
+            )
             ledger.record_equity_snapshot("trend", 950_000, "2026-09-21T16:00:00Z")
             ledger.close()
             with patch("app.RESULTS_PUBLIC", True), patch("app.LEDGER_PATH", str(path)):
@@ -65,6 +71,8 @@ class PublicRoutesTest(unittest.TestCase):
             self.assertIn("-5.00%", leaderboard)
             self.assertIn("$9,500.00", profile)
             self.assertIn("2026-09-21T16:00:00Z", profile)
+            self.assertIn("Recent decisions", profile)
+            self.assertIn("The trend was mixed, so no option qualified.", profile)
 
     def test_methodology_discloses_rules(self):
         page = self.get_page("/methodology/")

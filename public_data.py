@@ -45,6 +45,7 @@ def load_public_standings(path):
                 "max_drawdown_fraction": max_drawdown,
                 "closed_trades": closed_trades,
                 "as_of": latest["occurred_at"],
+                "recent_decisions": _recent_decisions(db, bot["id"]),
             }
         return standings
     except sqlite3.DatabaseError:
@@ -52,3 +53,15 @@ def load_public_standings(path):
     finally:
         if "db" in locals():
             db.close()
+
+
+def _recent_decisions(db, bot_id, limit=10):
+    try:
+        rows = db.execute(
+            """SELECT action,option_symbol,quantity,limit_cents,public_rationale,decided_at
+               FROM decisions WHERE bot_id=? ORDER BY decided_at DESC,id DESC LIMIT ?""",
+            (bot_id, limit),
+        ).fetchall()
+    except sqlite3.DatabaseError:
+        return []
+    return [dict(row) for row in rows]

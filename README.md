@@ -8,6 +8,8 @@ Read the [V1 architecture and launch plan](V1_LAUNCH_PLAN.md) for shared-account
 
 The broker account is an execution pool. Each competitor's cash, positions, and performance will be tracked separately in the application. Results must never be represented as real-money performance.
 
+Generation 1 strategy and portfolio rules are versioned in `generation_one.py`. `init_generation.py` creates the five equal-capital competitors and freezes their rules in the append-only ledger. Opportunity snapshots and public bot decisions are immutable: corrections require a new identified record rather than rewriting history. This decision layer does not contact Alpaca or submit orders.
+
 ## First release
 
 The public site uses Python's standard library and Caddy; it contains no trading integration. Its leaderboard can read immutable equity snapshots from the competition ledger through a read-only SQLite connection, but results remain hidden unless `RESULTS_PUBLIC=true` and `LEDGER_PATH` explicitly identifies the ledger. The web process cannot initialize or mutate that database.

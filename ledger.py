@@ -4,6 +4,8 @@ This module never contacts a broker or submits an order. Monetary inputs are
 integer cents; a standard listed option has a 100-share multiplier.
 """
 
+import hashlib
+import json
 import sqlite3
 from collections import defaultdict
 
@@ -62,6 +64,56 @@ class Ledger:
             );
             CREATE INDEX IF NOT EXISTS idx_equity_bot_time
                 ON equity_snapshots(bot_id, occurred_at DESC);
+            CREATE TABLE IF NOT EXISTS bot_versions (
+                id TEXT PRIMARY KEY,
+                bot_id TEXT NOT NULL REFERENCES bots(id),
+                generation INTEGER NOT NULL CHECK(generation > 0),
+                rules_json TEXT NOT NULL,
+                rules_sha256 TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(bot_id, generation),
+                UNIQUE(rules_sha256)
+            );
+            CREATE TABLE IF NOT EXISTS opportunity_snapshots (
+                id TEXT PRIMARY KEY,
+                captured_at TEXT NOT NULL,
+                data_cutoff_at TEXT NOT NULL,
+                market_json TEXT NOT NULL,
+                market_sha256 TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS decisions (
+                id TEXT PRIMARY KEY,
+                opportunity_id TEXT NOT NULL REFERENCES opportunity_snapshots(id),
+                bot_id TEXT NOT NULL REFERENCES bots(id),
+                bot_version_id TEXT NOT NULL REFERENCES bot_versions(id),
+                action TEXT NOT NULL CHECK(action IN ('buy','decline')),
+                option_symbol TEXT,
+                quantity INTEGER,
+                limit_cents INTEGER,
+                public_rationale TEXT NOT NULL CHECK(length(public_rationale) BETWEEN 1 AND 500),
+                decided_at TEXT NOT NULL,
+                CHECK(
+                    (action='decline' AND option_symbol IS NULL AND quantity IS NULL AND limit_cents IS NULL)
+                    OR
+                    (action='buy' AND option_symbol IS NOT NULL AND quantity > 0 AND limit_cents > 0)
+                ),
+                UNIQUE(opportunity_id, bot_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_decisions_bot_time
+                ON decisions(bot_id, decided_at DESC);
+            CREATE TRIGGER IF NOT EXISTS immutable_bot_versions_update
+                BEFORE UPDATE ON bot_versions BEGIN SELECT RAISE(ABORT, 'bot versions are immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS immutable_bot_versions_delete
+                BEFORE DELETE ON bot_versions BEGIN SELECT RAISE(ABORT, 'bot versions are immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS immutable_opportunities_update
+                BEFORE UPDATE ON opportunity_snapshots BEGIN SELECT RAISE(ABORT, 'opportunities are immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS immutable_opportunities_delete
+                BEFORE DELETE ON opportunity_snapshots BEGIN SELECT RAISE(ABORT, 'opportunities are immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS immutable_decisions_update
+                BEFORE UPDATE ON decisions BEGIN SELECT RAISE(ABORT, 'decisions are immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS immutable_decisions_delete
+                BEFORE DELETE ON decisions BEGIN SELECT RAISE(ABORT, 'decisions are immutable'); END;
         """)
 
     def add_bot(self, bot_id, starting_cash_cents):
@@ -209,3 +261,75 @@ class Ledger:
             if existing and (existing["equity_cents"], existing["cash_cents"]) == (equity_cents, cash):
                 return False
             raise LedgerError("equity snapshot timestamp reused with different data") from error
+
+    @staticmethod
+    def _canonical_json(value):
+        try:
+            encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        except (TypeError, ValueError) as error:
+            raise LedgerError("value must be valid JSON") from error
+        return encoded, hashlib.sha256(encoded.encode()).hexdigest()
+
+    def record_bot_version(self, version_id, bot_id, generation, rules, created_at):
+        if not version_id or not created_at or not isinstance(generation, int) or generation <= 0:
+            raise LedgerError("valid bot version metadata required")
+        rules_json, digest = self._canonical_json(rules)
+        try:
+            self.db.execute(
+                "INSERT INTO bot_versions VALUES (?,?,?,?,?,?)",
+                (version_id, bot_id, generation, rules_json, digest, created_at),
+            )
+            return True
+        except sqlite3.IntegrityError as error:
+            existing = self.db.execute("SELECT * FROM bot_versions WHERE id=?", (version_id,)).fetchone()
+            if existing and (existing["bot_id"], existing["generation"], existing["rules_json"], existing["created_at"]) == (bot_id, generation, rules_json, created_at):
+                return False
+            raise LedgerError("bot version conflicts with frozen configuration") from error
+
+    def record_opportunity(self, opportunity_id, captured_at, data_cutoff_at, market):
+        if not opportunity_id or not captured_at or not data_cutoff_at:
+            raise LedgerError("valid opportunity metadata required")
+        market_json, digest = self._canonical_json(market)
+        try:
+            self.db.execute(
+                "INSERT INTO opportunity_snapshots(id,captured_at,data_cutoff_at,market_json,market_sha256) VALUES (?,?,?,?,?)",
+                (opportunity_id, captured_at, data_cutoff_at, market_json, digest),
+            )
+            return True
+        except sqlite3.IntegrityError as error:
+            existing = self.db.execute("SELECT * FROM opportunity_snapshots WHERE id=?", (opportunity_id,)).fetchone()
+            if existing and (existing["captured_at"], existing["data_cutoff_at"], existing["market_json"]) == (captured_at, data_cutoff_at, market_json):
+                return False
+            raise LedgerError("opportunity conflicts with immutable snapshot") from error
+
+    def record_decision(self, decision_id, opportunity_id, bot_id, bot_version_id, action,
+                        public_rationale, decided_at, option_symbol=None, quantity=None,
+                        limit_cents=None):
+        if not decision_id or action not in ("buy", "decline") or not decided_at or \
+           not isinstance(public_rationale, str) or not 1 <= len(public_rationale) <= 500:
+            raise LedgerError("invalid public decision")
+        if action == "decline" and any(value is not None for value in (option_symbol, quantity, limit_cents)):
+            raise LedgerError("decline cannot specify an order")
+        if action == "buy" and (not option_symbol or not isinstance(quantity, int) or quantity <= 0 or
+                                not isinstance(limit_cents, int) or limit_cents <= 0):
+            raise LedgerError("buy decision requires a valid proposed order")
+        version = self.db.execute("SELECT bot_id FROM bot_versions WHERE id=?", (bot_version_id,)).fetchone()
+        if not version or version["bot_id"] != bot_id:
+            raise LedgerError("decision bot does not match frozen bot version")
+        try:
+            self.db.execute(
+                """INSERT INTO decisions(id,opportunity_id,bot_id,bot_version_id,action,option_symbol,
+                   quantity,limit_cents,public_rationale,decided_at) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (decision_id, opportunity_id, bot_id, bot_version_id, action, option_symbol,
+                 quantity, limit_cents, public_rationale, decided_at),
+            )
+            return True
+        except sqlite3.IntegrityError as error:
+            existing = self.db.execute("SELECT * FROM decisions WHERE id=?", (decision_id,)).fetchone()
+            expected = (opportunity_id, bot_id, bot_version_id, action, option_symbol, quantity,
+                        limit_cents, public_rationale, decided_at)
+            if existing and tuple(existing[key] for key in (
+                "opportunity_id", "bot_id", "bot_version_id", "action", "option_symbol",
+                "quantity", "limit_cents", "public_rationale", "decided_at")) == expected:
+                return False
+            raise LedgerError("decision conflicts with immutable record") from error

@@ -36,6 +36,8 @@ Broker fills are authoritative for execution; the per-bot ledger is authoritativ
 
 Long calls and puts only, liquid approved underlyings, capped premium per position, bounded spread, no same-day expiry, and no obligation to trade. Use fixed virtual starting capital for each bot. Include a simple deterministic baseline. Freeze model/prompt, strategy parameters, data cutoff, contract selection rules, and portfolio rules for the generation. Record concise structured rationales, not hidden model reasoning.
 
+The first frozen implementation uses $10,000 virtual cash per contender, a maximum $1,000 premium per position, at most three open positions, 14–45 days to expiry, limit orders, minimum open interest of 500, minimum contract volume of 100, and a maximum 10% bid/ask spread. These values are versioned in `generation_one.py`; changing them after ledger initialization requires a new version rather than editing the frozen record.
+
 Publish net return, maximum drawdown, closed-trade count, win rate, and time in market. The initial provisional fitness proposal is return minus 0.5 times maximum drawdown, with no elimination before eight trading weeks and 20 closed trades per eligible bot. Freeze the scoring rule before launch; preserve all eliminated bots and losing trades. Do not automatically mutate bots during Generation 1.
 
 ## Minimum site and data
