@@ -104,6 +104,13 @@ class Ledger:
                 decision_id TEXT PRIMARY KEY REFERENCES decisions(id),
                 client_order_id TEXT NOT NULL UNIQUE REFERENCES orders(client_order_id)
             );
+            CREATE TABLE IF NOT EXISTS launch_baselines (
+                generation INTEGER PRIMARY KEY CHECK(generation > 0),
+                captured_at TEXT NOT NULL UNIQUE,
+                account_status TEXT NOT NULL,
+                broker_positions INTEGER NOT NULL CHECK(broker_positions = 0),
+                broker_open_orders INTEGER NOT NULL CHECK(broker_open_orders = 0)
+            );
             CREATE INDEX IF NOT EXISTS idx_decisions_bot_time
                 ON decisions(bot_id, decided_at DESC);
             CREATE TRIGGER IF NOT EXISTS immutable_bot_versions_update
@@ -122,6 +129,10 @@ class Ledger:
                 BEFORE UPDATE ON decision_orders BEGIN SELECT RAISE(ABORT, 'decision order links are immutable'); END;
             CREATE TRIGGER IF NOT EXISTS immutable_decision_orders_delete
                 BEFORE DELETE ON decision_orders BEGIN SELECT RAISE(ABORT, 'decision order links are immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS immutable_launch_baselines_update
+                BEFORE UPDATE ON launch_baselines BEGIN SELECT RAISE(ABORT, 'launch baselines are immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS immutable_launch_baselines_delete
+                BEFORE DELETE ON launch_baselines BEGIN SELECT RAISE(ABORT, 'launch baselines are immutable'); END;
         """)
 
     def add_bot(self, bot_id, starting_cash_cents):
@@ -354,3 +365,28 @@ class Ledger:
                 "quantity", "limit_cents", "public_rationale", "decided_at")) == expected:
                 return False
             raise LedgerError("decision conflicts with immutable record") from error
+
+    def record_launch_baseline(self, generation, captured_at, account_status,
+                               broker_positions, broker_open_orders):
+        """Freeze proof that the broker was flat before a generation began."""
+        if not isinstance(generation, int) or generation <= 0 or not captured_at:
+            raise LedgerError("valid launch baseline metadata required")
+        if account_status != "ACTIVE" or broker_positions != 0 or broker_open_orders != 0:
+            raise LedgerError("launch baseline requires an active, flat broker account")
+        bots = self.db.execute("SELECT COUNT(*) FROM bots").fetchone()[0]
+        versions = self.db.execute(
+            "SELECT COUNT(DISTINCT bot_id) FROM bot_versions WHERE generation=?", (generation,)
+        ).fetchone()[0]
+        if bots == 0 or versions != bots:
+            raise LedgerError("every bot must have a frozen version before baseline")
+        values = (generation, captured_at, account_status, broker_positions, broker_open_orders)
+        try:
+            self.db.execute("INSERT INTO launch_baselines VALUES (?,?,?,?,?)", values)
+            return True
+        except sqlite3.IntegrityError as error:
+            existing = self.db.execute(
+                "SELECT * FROM launch_baselines WHERE generation=?", (generation,)
+            ).fetchone()
+            if existing and tuple(existing) == values:
+                return False
+            raise LedgerError("launch baseline conflicts with immutable record") from error

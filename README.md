@@ -10,7 +10,9 @@ The broker account is an execution pool. Each competitor's cash, positions, and 
 
 Generation 1 strategy and portfolio rules are versioned in `generation_one.py`. `init_generation.py` creates the five equal-capital competitors and freezes their rules in the append-only ledger. Opportunity snapshots and public bot decisions are immutable: corrections require a new identified record rather than rewriting history. This decision layer does not contact Alpaca or submit orders.
 
-The paper adapter remains GET-only. It can validate that a broker acceptance exactly matches a locally reserved decision order, then synchronize every fill page after an explicit launch baseline. Fill ingestion runs oldest-first, is idempotent, rejects unknown activity, and stops on incomplete or looping pagination. No order-submission function exists yet.
+The diagnostic paper adapter remains GET-only. It can validate that a broker acceptance exactly matches a locally reserved decision order, then synchronize every fill page after an explicit launch baseline. Fill ingestion runs oldest-first, is idempotent, rejects unknown activity, and stops on incomplete or looping pagination.
+
+`alpaca_submit.py` contains a separate, deliberately unwired paper-order boundary. It opens long positions only and refuses to POST unless it receives the exact enable token, finds an immutable flat-account baseline, resolves a tagged decision-linked reservation, confirms an active unblocked paper account, finds no broker open orders, and fully reconciles broker positions to bot allocations. It is not imported by the web process, has no command-line entry point, and has not been invoked against Alpaca.
 
 ## First release
 
