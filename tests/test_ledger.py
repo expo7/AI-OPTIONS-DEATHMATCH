@@ -134,6 +134,36 @@ class SharedAccountLedgerTest(unittest.TestCase):
                 option_symbol=SYMBOL, quantity=0, limit_cents=250,
             )
 
+    def test_competition_order_is_atomically_bound_to_exact_buy_decision(self):
+        self.ledger.record_bot_version("alpha-g1", "alpha", 1, {"strategy": "trend"}, WHEN)
+        self.ledger.record_opportunity("opp-1", WHEN, WHEN, {"underlying": "SPY"})
+        self.ledger.record_decision(
+            "decision-1", "opp-1", "alpha", "alpha-g1", "buy", "Qualified trend.", WHEN,
+            option_symbol=SYMBOL, quantity=1, limit_cents=250,
+        )
+        self.assertTrue(self.ledger.reserve_order(
+            "dm-g1-alpha-1", "alpha", SYMBOL, "buy", 1, 250, decision_id="decision-1",
+        ))
+        self.assertFalse(self.ledger.reserve_order(
+            "dm-g1-alpha-1", "alpha", SYMBOL, "buy", 1, 250, decision_id="decision-1",
+        ))
+        link = self.ledger.db.execute("SELECT * FROM decision_orders").fetchone()
+        self.assertEqual((link["decision_id"], link["client_order_id"]), ("decision-1", "dm-g1-alpha-1"))
+
+        self.ledger.record_opportunity("opp-2", "later", "later", {"underlying": "QQQ"})
+        self.ledger.record_decision(
+            "decision-2", "opp-2", "alpha", "alpha-g1", "buy", "Qualified trend.", "later",
+            option_symbol="QQQ261218C00500000", quantity=1, limit_cents=300,
+        )
+        with self.assertRaises(LedgerError):
+            self.ledger.reserve_order(
+                "dm-g1-alpha-2", "alpha", "QQQ261218C00500000", "buy", 1, 301,
+                decision_id="decision-2",
+            )
+        self.assertIsNone(self.ledger.db.execute(
+            "SELECT * FROM orders WHERE client_order_id='dm-g1-alpha-2'"
+        ).fetchone())
+
 
 if __name__ == "__main__":
     unittest.main()

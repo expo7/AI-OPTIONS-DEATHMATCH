@@ -10,6 +10,8 @@ The broker account is an execution pool. Each competitor's cash, positions, and 
 
 Generation 1 strategy and portfolio rules are versioned in `generation_one.py`. `init_generation.py` creates the five equal-capital competitors and freezes their rules in the append-only ledger. Opportunity snapshots and public bot decisions are immutable: corrections require a new identified record rather than rewriting history. This decision layer does not contact Alpaca or submit orders.
 
+The paper adapter remains GET-only. It can validate that a broker acceptance exactly matches a locally reserved decision order, then synchronize every fill page after an explicit launch baseline. Fill ingestion runs oldest-first, is idempotent, rejects unknown activity, and stops on incomplete or looping pagination. No order-submission function exists yet.
+
 ## First release
 
 The public site uses Python's standard library and Caddy; it contains no trading integration. Its leaderboard can read immutable equity snapshots from the competition ledger through a read-only SQLite connection, but results remain hidden unless `RESULTS_PUBLIC=true` and `LEDGER_PATH` explicitly identifies the ledger. The web process cannot initialize or mutate that database.

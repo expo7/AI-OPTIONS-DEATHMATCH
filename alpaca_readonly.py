@@ -72,6 +72,41 @@ class PaperReader:
             raise LedgerError("page size outside 1..100")
         return self.get("/v2/account/activities/FILL", {"page_size": page_size, "direction": "desc"})
 
+    def fill_pages(self, after, until=None, page_size=100, max_pages=100):
+        """Yield complete fill pages newer than the competition baseline.
+
+        Alpaca uses the final activity ID from one page as the next page token.
+        A hard page bound prevents a malformed response from looping forever.
+        """
+        if not after:
+            raise LedgerError("fill synchronization requires a launch baseline")
+        if not isinstance(page_size, int) or not 1 <= page_size <= 100:
+            raise LedgerError("page size outside 1..100")
+        if not isinstance(max_pages, int) or not 1 <= max_pages <= 1000:
+            raise LedgerError("page bound outside 1..1000")
+        page_token = None
+        seen_tokens = set()
+        for _ in range(max_pages):
+            params = {"page_size": page_size, "direction": "desc", "after": after}
+            if until:
+                params["until"] = until
+            if page_token:
+                params["page_token"] = page_token
+            page = self.get("/v2/account/activities/FILL", params)
+            if not isinstance(page, list):
+                raise LedgerError("broker fill page is not a list")
+            yield page
+            if len(page) < page_size:
+                return
+            if not page or not page[-1].get("id"):
+                raise LedgerError("full broker page has no continuation token")
+            next_token = page[-1]["id"]
+            if next_token in seen_tokens:
+                raise LedgerError("broker fill pagination repeated a token")
+            seen_tokens.add(next_token)
+            page_token = next_token
+        raise LedgerError("broker fill pagination exceeded safety bound")
+
 
 def whole_number(value):
     try:
@@ -106,6 +141,44 @@ def apply_trade_activity(ledger, activity):
     return ledger.record_fill(
         activity["id"], order["client_order_id"], whole_number(activity["qty"]),
         premium_cents(activity["price"]), activity["transaction_time"])
+
+
+def apply_order_acceptance(ledger, broker_order):
+    """Validate Alpaca's response before binding it to a reserved bot order."""
+    client_id = broker_order.get("client_order_id")
+    order = ledger.db.execute("SELECT * FROM orders WHERE client_order_id=?", (client_id,)).fetchone()
+    if not order or order["status"] != "reserved":
+        raise LedgerError("broker response has no matching reserved order")
+    if broker_order.get("type") != "limit" or broker_order.get("status") not in ("accepted", "new"):
+        raise LedgerError("broker did not accept the expected limit order")
+    try:
+        broker_limit = premium_cents(broker_order.get("limit_price"))
+        broker_quantity = whole_number(broker_order.get("qty"))
+    except LedgerError:
+        raise LedgerError("broker acceptance has invalid order terms") from None
+    if (broker_order.get("symbol"), broker_order.get("side"), broker_quantity, broker_limit) != (
+        order["symbol"], order["side"], order["quantity"], order["limit_cents"]
+    ):
+        raise LedgerError("broker accepted terms differ from reserved order")
+    ledger.accept_order(client_id, broker_order.get("id"))
+
+
+def sync_fill_activities(ledger, reader, after, until=None, page_size=100, max_pages=100):
+    """Ingest all attributed fills after baseline, oldest first and idempotently."""
+    activities = []
+    seen = set()
+    for page in reader.fill_pages(after, until=until, page_size=page_size, max_pages=max_pages):
+        for activity in page:
+            activity_id = activity.get("id")
+            if not activity_id or activity_id in seen:
+                raise LedgerError("broker returned missing or duplicate fill activity ID")
+            seen.add(activity_id)
+            activities.append(activity)
+    activities.sort(key=lambda item: (item.get("transaction_time", ""), item["id"]))
+    inserted = 0
+    for activity in activities:
+        inserted += bool(apply_trade_activity(ledger, activity))
+    return {"seen": len(activities), "inserted": inserted}
 
 
 def main():

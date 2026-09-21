@@ -32,6 +32,8 @@ Broker fills are authoritative for execution; the per-bot ledger is authoritativ
 6. Publish the result on the bot profile and leaderboard, with paper-trading disclosure.
 7. Repeat for five bots on the same snapshots and rules.
 
+Implemented safety boundary: a proposed order is reserved together with its immutable decision attribution. Broker acceptance is recorded only when Alpaca returns the same client order ID, symbol, side, quantity, limit price, and limit-order type. Fill history is fetched page by page from an explicit post-baseline timestamp, sorted oldest-first, and applied idempotently. Any unattributed fill or incomplete pagination stops synchronization for operator review.
+
 ## Initial competition rules
 
 Long calls and puts only, liquid approved underlyings, capped premium per position, bounded spread, no same-day expiry, and no obligation to trade. Use fixed virtual starting capital for each bot. Include a simple deterministic baseline. Freeze model/prompt, strategy parameters, data cutoff, contract selection rules, and portfolio rules for the generation. Record concise structured rationales, not hidden model reasoning.

@@ -100,6 +100,10 @@ class Ledger:
                 ),
                 UNIQUE(opportunity_id, bot_id)
             );
+            CREATE TABLE IF NOT EXISTS decision_orders (
+                decision_id TEXT PRIMARY KEY REFERENCES decisions(id),
+                client_order_id TEXT NOT NULL UNIQUE REFERENCES orders(client_order_id)
+            );
             CREATE INDEX IF NOT EXISTS idx_decisions_bot_time
                 ON decisions(bot_id, decided_at DESC);
             CREATE TRIGGER IF NOT EXISTS immutable_bot_versions_update
@@ -114,6 +118,10 @@ class Ledger:
                 BEFORE UPDATE ON decisions BEGIN SELECT RAISE(ABORT, 'decisions are immutable'); END;
             CREATE TRIGGER IF NOT EXISTS immutable_decisions_delete
                 BEFORE DELETE ON decisions BEGIN SELECT RAISE(ABORT, 'decisions are immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS immutable_decision_orders_update
+                BEFORE UPDATE ON decision_orders BEGIN SELECT RAISE(ABORT, 'decision order links are immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS immutable_decision_orders_delete
+                BEFORE DELETE ON decision_orders BEGIN SELECT RAISE(ABORT, 'decision order links are immutable'); END;
         """)
 
     def add_bot(self, bot_id, starting_cash_cents):
@@ -142,7 +150,7 @@ class Ledger:
             raise LedgerError("unknown bot")
         return row["cash"]
 
-    def reserve_order(self, client_order_id, bot_id, symbol, side, quantity, limit_cents):
+    def reserve_order(self, client_order_id, bot_id, symbol, side, quantity, limit_cents, decision_id=None):
         if not client_order_id or not symbol or side not in ("buy", "sell") or \
            not isinstance(quantity, int) or quantity <= 0 or \
            not isinstance(limit_cents, int) or limit_cents <= 0:
@@ -154,8 +162,19 @@ class Ledger:
                 if (existing["bot_id"], existing["symbol"], existing["side"], existing["quantity"], existing["limit_cents"]) != \
                    (bot_id, symbol, side, quantity, limit_cents):
                     raise LedgerError("client order ID reused for different intent")
+                if decision_id:
+                    link = self.db.execute("SELECT decision_id FROM decision_orders WHERE client_order_id=?", (client_order_id,)).fetchone()
+                    if not link or link["decision_id"] != decision_id:
+                        raise LedgerError("client order ID has different decision attribution")
                 self.db.execute("COMMIT")
                 return False
+            if decision_id:
+                decision = self.db.execute("SELECT * FROM decisions WHERE id=?", (decision_id,)).fetchone()
+                if not decision or (
+                    decision["bot_id"], decision["action"], decision["option_symbol"],
+                    decision["quantity"], decision["limit_cents"]
+                ) != (bot_id, "buy", symbol, quantity, limit_cents):
+                    raise LedgerError("order does not exactly match its immutable decision")
             conflict = self.db.execute("SELECT 1 FROM orders WHERE symbol=? AND status IN ('reserved','accepted','partial') LIMIT 1", (symbol,)).fetchone()
             if conflict:
                 raise LedgerError("another order for this exact contract is unresolved")
@@ -165,6 +184,8 @@ class Ledger:
                 raise LedgerError("bot does not own enough contracts")
             self.db.execute("""INSERT INTO orders(client_order_id,bot_id,symbol,side,quantity,limit_cents,status)
                 VALUES (?,?,?,?,?,?,'reserved')""", (client_order_id, bot_id, symbol, side, quantity, limit_cents))
+            if decision_id:
+                self.db.execute("INSERT INTO decision_orders VALUES (?,?)", (decision_id, client_order_id))
             self.db.execute("COMMIT")
             return True
         except BaseException:
