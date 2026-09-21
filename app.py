@@ -1,50 +1,124 @@
-"""Small public launch page for the Deathmatch project.
+"""Public website for AI Options Deathmatch.
 
-No trading or broker credentials are used by this process.
+The web process intentionally has no broker credentials and cannot trade.
 """
 
 import json
 import os
 from html import escape
-
-from bots import BOTS, STARTING_CASH_CENTS
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
+from bots import BOTS, STARTING_CASH_CENTS, get_bot
+
 
 COMMIT = os.getenv("APP_COMMIT", "local")
+STARTING_CASH = f"${STARTING_CASH_CENTS / 100:,.0f}"
+
+
+def layout(title, eyebrow, content, description):
+    """Render a complete page with shared navigation and disclosures."""
+    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="{escape(description)}">
+<title>{escape(title)} · AI Options Deathmatch</title>
+<style>
+:root{{--ink:#edf3f8;--muted:#9cabb8;--line:#2c3b4a;--panel:#141e29;--panel2:#192634;--green:#8ff0b4;--blue:#7cc8ff;--bg:#0a1017}}
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 85% 5%,#172b3c 0,transparent 35%),var(--bg);color:var(--ink);font:16px/1.6 system-ui,-apple-system,sans-serif}}
+a{{color:inherit}}.wrap{{width:min(1100px,calc(100% - 36px));margin:auto}}nav{{display:flex;align-items:center;justify-content:space-between;padding:22px 0;border-bottom:1px solid var(--line)}}
+.brand{{font-weight:800;text-decoration:none;letter-spacing:-.03em}}.brand b{{color:var(--green)}}nav div{{display:flex;gap:22px}}nav div a{{color:var(--muted);text-decoration:none;font-size:.92rem}}nav div a:hover{{color:var(--ink)}}
+main{{padding:72px 0 90px}}.eyebrow{{color:var(--blue);font-size:.78rem;font-weight:800;letter-spacing:.15em;text-transform:uppercase}}h1{{font-size:clamp(2.7rem,7vw,5.7rem);line-height:.96;letter-spacing:-.065em;margin:.22em 0 .35em;max-width:850px}}h2{{letter-spacing:-.035em;line-height:1.15}}p{{color:var(--muted);max-width:68ch}}
+.lead{{font-size:clamp(1.08rem,2vw,1.3rem)}}.actions{{display:flex;flex-wrap:wrap;gap:12px;margin:30px 0 52px}}.button{{display:inline-block;padding:11px 17px;border:1px solid var(--line);border-radius:8px;text-decoration:none;font-weight:700}}.button.primary{{background:var(--green);border-color:var(--green);color:#08120c}}.button:hover{{transform:translateY(-1px)}}
+.notice{{border:1px solid #38566b;border-left:4px solid var(--blue);background:#101d28;padding:20px 22px;border-radius:8px;margin:30px 0}}.notice strong{{color:var(--ink)}}.notice p{{margin:.35em 0 0}}
+.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:15px;margin-top:24px}}.card{{border:1px solid var(--line);border-radius:12px;padding:22px;background:linear-gradient(145deg,var(--panel2),var(--panel));text-decoration:none}}.card:hover{{border-color:#537087}}.card h2{{margin:.18em 0;font-size:1.35rem}}.card p{{font-size:.94rem;line-height:1.48}}.tag{{color:var(--blue);font-size:.72rem;font-weight:800;letter-spacing:.11em;text-transform:uppercase}}.status{{display:inline-flex;align-items:center;gap:7px;color:var(--green);font-size:.8rem;font-weight:700}}.status:before{{content:'';width:7px;height:7px;border-radius:50%;background:var(--green)}}
+.section-head{{display:flex;align-items:end;justify-content:space-between;gap:20px;margin-top:65px}}.section-head h2{{font-size:2rem;margin:0}}.section-head a{{color:var(--blue)}}
+.table-wrap{{overflow-x:auto;border:1px solid var(--line);border-radius:12px;margin-top:24px}}table{{width:100%;border-collapse:collapse;min-width:720px;background:var(--panel)}}th,td{{padding:16px 18px;text-align:left;border-bottom:1px solid var(--line)}}th{{color:var(--muted);font-size:.73rem;letter-spacing:.1em;text-transform:uppercase}}tbody tr:last-child td{{border-bottom:0}}td.metric{{font-variant-numeric:tabular-nums;color:var(--muted)}}.rank{{color:var(--muted);width:45px}}.bot-link{{font-weight:750;text-decoration:none}}.bot-link:hover{{color:var(--blue)}}
+.stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:35px 0}}.stat{{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:18px}}.stat span{{display:block;color:var(--muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.08em}}.stat strong{{font-size:1.35rem}}.rules{{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:15px;margin-top:25px}}.rule{{border-top:2px solid var(--line);padding-top:16px}}.rule h2{{font-size:1.08rem;margin:0 0 5px}}.rule p{{margin:0;font-size:.94rem}}
+.profile{{display:grid;grid-template-columns:2fr 1fr;gap:40px;align-items:start}}.side{{border:1px solid var(--line);background:var(--panel);padding:22px;border-radius:12px}}.side dl{{margin:0}}.side dt{{color:var(--muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.08em;margin-top:15px}}.side dt:first-child{{margin-top:0}}.side dd{{margin:2px 0;font-weight:700}}footer{{border-top:1px solid var(--line);padding:28px 0 42px;color:var(--muted);font-size:.82rem}}footer .wrap{{display:flex;justify-content:space-between;gap:20px}}
+@media(max-width:700px){{nav div{{gap:13px}}nav div a:first-child{{display:none}}main{{padding-top:48px}}.profile{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}footer .wrap{{display:block}}}}
+</style></head><body><div class="wrap"><nav><a class="brand" href="/">AI OPTIONS <b>DEATHMATCH</b></a><div><a href="/">Arena</a><a href="/leaderboard">Leaderboard</a><a href="/methodology">Rules</a></div></nav>
+<main><div class="eyebrow">{escape(eyebrow)}</div>{content}</main></div>
+<footer><div class="wrap"><span>Paper-trading experiment · Not investment advice</span><span>Generation 1 · Preparing</span></div></footer></body></html>'''
+
+
+def bot_cards():
+    return "".join(
+        f'''<a class="card" href="/bots/{escape(bot.slug)}"><div class="tag">{escape(bot.kind)}</div>
+<h2>{escape(bot.name)}</h2><p>{escape(bot.approach)}</p><span class="status">Awaiting launch</span></a>'''
+        for bot in BOTS
+    )
+
+
+def leaderboard_table():
+    rows = "".join(
+        f'''<tr><td class="rank">{number}</td><td><a class="bot-link" href="/bots/{escape(bot.slug)}">{escape(bot.name)}</a><br><small>{escape(bot.kind)}</small></td>
+<td class="metric">{STARTING_CASH}</td><td class="metric">—</td><td class="metric">—</td><td class="metric">0</td></tr>'''
+        for number, bot in enumerate(BOTS, 1)
+    )
+    return f'''<div class="table-wrap"><table><thead><tr><th>#</th><th>Contender</th><th>Starting cash</th><th>Return</th><th>Max drawdown</th><th>Closed trades</th></tr></thead><tbody>{rows}</tbody></table></div>'''
+
+
+def home_page():
+    content = f'''<h1>Five contenders.<br>One options arena.</h1>
+<p class="lead">Four AI strategies and a cash benchmark will receive the same opportunity set and {STARTING_CASH} in separate virtual capital. Every decision, fill, loss, and elimination will remain public.</p>
+<div class="actions"><a class="button primary" href="/leaderboard">View the leaderboard</a><a class="button" href="/methodology">Read the rules</a></div>
+<div class="notice"><strong>No competition trades have begun.</strong><p>The execution and accounting system is being prepared. Empty statistics are shown as unavailable—not as zero performance.</p></div>
+<div class="section-head"><h2>Generation 1 roster</h2><a href="/methodology">How it works →</a></div><section class="grid" aria-label="Candidate bots">{bot_cards()}</section>'''
+    return layout("The arena", "Generation 1 · Preparing", content, "Five options strategies compete in a transparent paper-trading experiment.")
+
+
+def leaderboard_page():
+    content = f'''<h1>The leaderboard starts at zero.</h1><p class="lead">Every contender receives {STARTING_CASH} in virtual capital. Rankings will use attributed broker fills—not the shared paper account's historical balance.</p>
+<div class="notice"><strong>Competition inactive.</strong><p>Return and drawdown remain blank until the timestamped Generation 1 baseline is established and the first competition fill occurs.</p></div>{leaderboard_table()}
+<div class="section-head"><h2>What will be measured</h2></div><div class="rules"><div class="rule"><h2>Net return</h2><p>Change in each bot's separately maintained virtual equity.</p></div><div class="rule"><h2>Maximum drawdown</h2><p>Largest peak-to-trough decline during the generation.</p></div><div class="rule"><h2>Decision record</h2><p>Trades, declines, rejected orders, and execution blocks all remain visible.</p></div></div>'''
+    return layout("Leaderboard", "Generation 1 · Standings", content, "Generation 1 standings for the AI Options Deathmatch paper-trading competition.")
+
+
+def bot_page(bot):
+    content = f'''<div class="profile"><section><h1>{escape(bot.name)}</h1><p class="lead">{escape(bot.approach)}</p>
+<div class="notice"><strong>Awaiting Generation 1.</strong><p>This contender has no competition decisions, orders, fills, or returns yet.</p></div>
+<h2>Public record</h2><p>Once competition trading begins, this page will retain the bot's complete decision and trade history—including losses and opportunities it declines.</p></section>
+<aside class="side"><dl><dt>Type</dt><dd>{escape(bot.kind)}</dd><dt>Starting capital</dt><dd>{STARTING_CASH}</dd><dt>Status</dt><dd>Preparing</dd><dt>Return</dt><dd>Not started</dd><dt>Closed trades</dt><dd>0</dd></dl></aside></div>'''
+    return layout(bot.name, "Contender profile", content, f"Profile and public competition record for {bot.name}.")
+
+
+def methodology_page():
+    content = f'''<h1>Same arena. Different minds.</h1><p class="lead">The experiment is designed to compare strategy decisions rather than account size, private execution advantages, or selective reporting.</p>
+<div class="stats"><div class="stat"><span>Contenders</span><strong>5</strong></div><div class="stat"><span>Virtual cash each</span><strong>{STARTING_CASH}</strong></div><div class="stat"><span>Instrument</span><strong>Long options</strong></div><div class="stat"><span>Money</span><strong>Paper only</strong></div></div>
+<div class="rules"><div class="rule"><h2>Equal opportunity set</h2><p>Bots evaluate the same timestamped market snapshot and eligible contracts.</p></div><div class="rule"><h2>Separate accounting</h2><p>Each bot has its own virtual cash and holdings despite shared broker execution.</p></div><div class="rule"><h2>Long calls and puts</h2><p>Generation 1 excludes short options, multi-leg positions, and same-day expiry.</p></div><div class="rule"><h2>No forced trades</h2><p>A bot may hold cash. Declined and blocked opportunities are recorded.</p></div><div class="rule"><h2>Broker fills are evidence</h2><p>Returns change only from attributed fills, including partial fills and fees.</p></div><div class="rule"><h2>Permanent record</h2><p>Losses and eliminated strategies stay public; results are never quietly removed.</p></div></div>
+<div class="notice"><strong>Paper trading is not real-money performance.</strong><p>Simulated execution can differ materially from live trading. This experiment is educational and is not investment advice.</p></div>'''
+    return layout("Methodology", "Competition contract", content, "Rules and accounting methodology for AI Options Deathmatch.")
 
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        path = urlsplit(self.path).path
+        path = urlsplit(self.path).path.rstrip("/") or "/"
         if path == "/healthz":
-            data = json.dumps({"status": "ok", "commit": COMMIT}).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
-            return
-        if path != "/":
-            self.send_error(404)
-            return
-        cards = "".join(
-            f'<article class="bot"><small>{escape(bot.kind)}</small><h2>{escape(bot.name)}</h2>'
-            f'<p>{escape(bot.approach)}</p><span>Awaiting Generation 1</span></article>'
-            for bot in BOTS
-        )
-        data = '''<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Four AI options strategy candidates and a cash benchmark will compete in an openly tracked paper-trading experiment.">
-<title>AI Options Deathmatch — Generation 1 preparing</title>
-<style>body{margin:0;background:#10151e;color:#e9edf3;font:18px/1.6 system-ui,sans-serif}main{max-width:780px;margin:12vh auto;padding:0 24px}small{color:#89a8c4;letter-spacing:.12em;text-transform:uppercase}h1{font-size:clamp(2.5rem,7vw,5rem);line-height:1.05;margin:.5em 0}p{max-width:60ch}strong{color:#9ee6ba}.panel,.bot{border:1px solid #3c5061;border-radius:12px;padding:20px;margin-top:24px;background:#182230}a{color:#a9d7ff}.roster{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:20px}.bot{margin:0}.bot h2{margin:.25em 0;font-size:1.35rem}.bot p{font-size:1rem;line-height:1.45}.bot span{color:#9ee6ba;font-size:.85rem}</style>
-</head><body><main><small>Generation 1 · Preparing</small><h1>Five contenders.<br>One options arena.</h1>
-<p>AI Options Deathmatch is an upcoming public experiment. Four AI strategy candidates and a deterministic cash benchmark are preparing to compete. Each will begin with {{STARTING_CASH}} in separate virtual capital. Their complete paper-trading records will appear here.</p>
-<div class="panel"><strong>No competition trades have begun.</strong><p>We are building the execution and accounting system. Results will include losses, unfilled orders, and eliminated bots. Paper results are simulated and are not real-money returns.</p></div>
-<h2>Generation 1 candidate roster</h2><p>These approaches are provisional. Configurations and competition rules will be frozen before the first trade.</p><section class="roster" aria-label="Candidate bots">{{CARDS}}</section><p><a href="https://github.com/expo7/AI-OPTIONS-DEATHMATCH">Read the project plan</a></p></main></body></html>'''.replace("{{STARTING_CASH}}", f"${STARTING_CASH_CENTS / 100:,.0f}").replace("{{CARDS}}", cards).encode()
+            return self.send_json({"status": "ok", "commit": COMMIT})
+        if path == "/":
+            return self.send_html(home_page())
+        if path == "/leaderboard":
+            return self.send_html(leaderboard_page())
+        if path == "/methodology":
+            return self.send_html(methodology_page())
+        if path.startswith("/bots/"):
+            bot = get_bot(path.removeprefix("/bots/"))
+            if bot:
+                return self.send_html(bot_page(bot))
+        self.send_error(404)
+
+    def send_html(self, page):
+        data = page.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def send_json(self, payload):
+        data = json.dumps(payload).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)

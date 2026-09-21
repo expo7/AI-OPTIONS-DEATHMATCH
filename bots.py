@@ -20,3 +20,8 @@ BOTS = (
     Bot("catalyst", "Catalyst Reader", "Considers dated public events while respecting the same data cutoff as every bot."),
     Bot("cash", "Cash Keeper", "Deterministic hold-cash benchmark; records every opportunity it declines.", "Benchmark"),
 )
+
+
+def get_bot(slug):
+    """Return the bot matching a stable public slug, if one exists."""
+    return next((bot for bot in BOTS if bot.slug == slug), None)
