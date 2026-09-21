@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 from bots import BOTS, STARTING_CASH_CENTS, get_bot
+from lifecycle_policy import MANDATORY_EXIT_DAYS_TO_EXPIRY, MAX_PREMIUM_LOSS_FRACTION, PROFIT_TARGET_FRACTION
 from public_data import load_public_standings
 
 
@@ -148,7 +149,9 @@ def position_history(positions):
         return ""
     items = []
     for position in positions:
-        due = '<span class="warning">Expiry exit due</span>' if position["expiry_exit_due"] else f'{position["days_to_expiry"]} days to expiry'
+        signals = position.get("exit_signals", [])
+        labels = {"risk_limit": "Loss limit reached", "target": "Profit target reached", "expiry_rule": "Expiry exit due"}
+        due = '<span class="warning">' + escape(", ".join(labels.get(signal, signal) for signal in signals)) + '</span>' if signals else f'{position["days_to_expiry"]} days to expiry'
         items.append(f'''<article class="position"><header><strong>{escape(position["symbol"])}</strong><span>{due}</span></header>
 <dl><div><dt>Quantity</dt><dd>{position["quantity"]}</dd></div><div><dt>Market value</dt><dd>{money(position["market_value_cents"])}</dd></div><div><dt>Unrealized return</dt><dd>{percent(position["return_fraction"])}</dd></div></dl></article>''')
     return '<section class="decisions"><h2>Open positions</h2>' + "".join(items) + "</section>"
@@ -157,7 +160,7 @@ def position_history(positions):
 def methodology_page():
     content = f'''<h1>Same arena. Different minds.</h1><p class="lead">The experiment is designed to compare strategy decisions rather than account size, private execution advantages, or selective reporting.</p>
 <div class="stats"><div class="stat"><span>Contenders</span><strong>5</strong></div><div class="stat"><span>Virtual cash each</span><strong>{STARTING_CASH}</strong></div><div class="stat"><span>Instrument</span><strong>Long options</strong></div><div class="stat"><span>Money</span><strong>Paper only</strong></div></div>
-<div class="rules"><div class="rule"><h2>Equal opportunity set</h2><p>Bots evaluate the same timestamped market snapshot and eligible contracts.</p></div><div class="rule"><h2>Separate accounting</h2><p>Each bot has its own virtual cash and holdings despite shared broker execution.</p></div><div class="rule"><h2>Long calls and puts</h2><p>Generation 1 excludes short options, multi-leg positions, and same-day expiry.</p></div><div class="rule"><h2>No forced trades</h2><p>A bot may hold cash. Declined and blocked opportunities are recorded.</p></div><div class="rule"><h2>Broker fills are evidence</h2><p>Returns change only from attributed fills, including partial fills and fees.</p></div><div class="rule"><h2>Permanent record</h2><p>Losses and eliminated strategies stay public; results are never quietly removed.</p></div></div>
+<div class="rules"><div class="rule"><h2>Equal opportunity set</h2><p>Bots evaluate the same timestamped market snapshot and eligible contracts.</p></div><div class="rule"><h2>Separate accounting</h2><p>Each bot has its own virtual cash and holdings despite shared broker execution.</p></div><div class="rule"><h2>Long calls and puts</h2><p>Generation 1 excludes short options, multi-leg positions, and same-day expiry.</p></div><div class="rule"><h2>No forced trades</h2><p>A bot may hold cash. Declined and blocked opportunities are recorded.</p></div><div class="rule"><h2>Common exit alerts</h2><p>Every position is flagged at {abs(MAX_PREMIUM_LOSS_FRACTION):.0%} premium loss, {PROFIT_TARGET_FRACTION:.0%} premium gain, or {MANDATORY_EXIT_DAYS_TO_EXPIRY} days to expiry. Closing submission remains supervised.</p></div><div class="rule"><h2>Broker fills are evidence</h2><p>Returns change only from attributed fills, including partial fills and fees.</p></div><div class="rule"><h2>Permanent record</h2><p>Losses and eliminated strategies stay public; results are never quietly removed.</p></div></div>
 <div class="notice"><strong>Paper trading is not real-money performance.</strong><p>Simulated execution can differ materially from live trading. This experiment is educational and is not investment advice.</p></div>'''
     return layout("Methodology", "Competition contract", content, "Rules and accounting methodology for AI Options Deathmatch.")
 

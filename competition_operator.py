@@ -15,6 +15,7 @@ from alpaca_submit import PaperSubmitter, submit_reserved_exit, submit_reserved_
 from bots import BOTS
 from generation_one import BOT_RULES, COMMON_RULES, GENERATION
 from ledger import Ledger, LedgerError
+from lifecycle_policy import POLICY_ID, exit_signals
 from public_data import write_public_results
 
 
@@ -189,13 +190,16 @@ def mark(ledger, env_file, public_results, occurred_at=None):
                 value = holding["quantity"] * prices[symbol] * 100
                 expiration = option_expiration(symbol)
                 days = (expiration - _utc(timestamp, "mark timestamp").date()).days
+                position_return = (value - cost) / cost if cost else 0.0
+                signals = exit_signals(position_return, days)
                 bot_positions.append({
                     "symbol": symbol, "quantity": holding["quantity"],
                     "cost_basis_cents": cost, "market_value_cents": value,
                     "unrealized_pl_cents": value - cost,
-                    "return_fraction": (value - cost) / cost if cost else 0.0,
+                    "return_fraction": position_return,
                     "mark_cents": prices[symbol], "expiration": expiration.isoformat(),
-                    "days_to_expiry": days, "expiry_exit_due": days <= 7,
+                    "days_to_expiry": days, "exit_policy_id": POLICY_ID,
+                    "exit_signals": signals, "exit_due": bool(signals),
                 })
         if equity < 0:
             raise LedgerError("negative bot equity cannot be published")
@@ -204,7 +208,7 @@ def mark(ledger, env_file, public_results, occurred_at=None):
     for bot_id, equity in equities.items():
         ledger.record_equity_snapshot(bot_id, equity, timestamp)
     published = write_public_results(ledger, public_results, timestamp, public_positions)
-    exits_due = sum(position["expiry_exit_due"] for rows in public_positions.values() for position in rows)
+    exits_due = sum(position["exit_due"] for rows in public_positions.values() for position in rows)
     return {"marked_at": timestamp, "contenders": len(equities), "published": published,
             "open_positions": sum(map(len, public_positions.values())), "expiry_exits_due": exits_due}
 
