@@ -1,5 +1,20 @@
 # Operations runbook
 
+## Queue a shared opportunity
+
+Market collection and decision generation are not allowed to place orders.
+Queue a reviewed snapshot, record each contender response, and inspect readiness:
+
+```bash
+sudo python3 decision_queue.py enqueue /path/to/scan.json
+sudo python3 decision_queue.py status opp-YYYYMMDD-HHMMSS
+sudo python3 decision_queue.py decide opp-YYYYMMDD-HHMMSS /path/to/decision.json
+```
+
+After all five decisions are present, `assemble` is a read-only preview and
+`stage` creates the attributed local reservation. Neither command contacts the
+broker. Use the existing explicit paper submission procedure only after review.
+
 ## Current release
 
 The public service serves the arena, leaderboard, methodology, bot profiles, and `/healthz` through a local Python process. It contains no broker credentials and cannot submit orders. Broker diagnostics, ledger tools, and the disabled paper-submission boundary are separate operator modules that the web process does not import.
@@ -24,7 +39,7 @@ Create a dedicated Ed25519 keypair for this repository's GitHub Actions identity
 
 The root-owned release command refuses a dirty checkout, non-SHA input, and commits absent from `origin/master`; it serializes releases and checks the new internal health endpoint. The workflow independently checks the public routes. A failed health check does not automatically roll back data or code; diagnose and redeploy a known-good commit after confirming compatibility.
 
-## Per-bot ledger (not activated yet)
+## Per-bot ledger
 
 `ledger.py` is a standard-library SQLite accounting component. It initializes a database only when explicitly called; importing the module or deploying the website does not create one or submit orders. Use integer cents for cash and per-share option premiums, and contract units for quantities. Reserve by unique client order ID, attach the broker order ID upon acceptance, and attribute fills by unique broker fill ID. Replayed identical events are no-ops; conflicting replays fail. A symbol with an unresolved order cannot accept another order. Reconcile the sum of bot holdings with the broker's entire position map and review negative virtual cash before permitting another order. Persist the eventual production database outside the Git worktree, back it up off-server, and test restore before enabling trading.
 

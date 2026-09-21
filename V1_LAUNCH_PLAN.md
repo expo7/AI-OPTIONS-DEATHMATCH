@@ -1,6 +1,6 @@
 # AI Options Deathmatch — V1 launch plan
 
-**Status:** Planning. No live competition or deployed site is claimed by this document.
+**Status:** Generation 1 active in paper trading. This document retains the original V1 contract and safety constraints.
 
 ## Goal
 

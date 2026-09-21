@@ -54,8 +54,8 @@ def _validate_contract(contract, captured_at):
         raise LedgerError("candidate contract exceeds the premium cap")
 
 
-def stage_plan(ledger, plan):
-    """Freeze one shared snapshot, five decisions, and at most one opening order."""
+def validate_plan(plan):
+    """Validate a complete Generation 1 plan without changing the ledger."""
     if plan.get("generation") != GENERATION:
         raise LedgerError("plan generation does not match frozen rules")
     captured = _utc(plan.get("captured_at"), "captured_at")
@@ -83,18 +83,37 @@ def stage_plan(ledger, plan):
     if next(row for row in decisions if row["bot_id"] == "cash").get("action") != "decline":
         raise LedgerError("cash benchmark must decline")
 
-    opportunity_id = plan.get("opportunity_id")
-    ledger.record_opportunity(opportunity_id, plan["captured_at"], plan["data_cutoff_at"], market)
-    reserved = None
     for row in decisions:
-        bot_id = row["bot_id"]
         action = row["action"]
         symbol, quantity, limit_cents = row.get("option_symbol"), row.get("quantity"), row.get("limit_cents")
+        rationale = row.get("public_rationale")
+        if not isinstance(rationale, str) or not 1 <= len(rationale) <= 500:
+            raise LedgerError("every decision requires a concise public rationale")
+        if action == "decline" and any(value is not None for value in (symbol, quantity, limit_cents)):
+            raise LedgerError("decline cannot specify an order")
         if action == "buy":
             if symbol not in contracts or quantity != 1:
                 raise LedgerError("buy must use one snapshotted contract")
             if limit_cents != contracts[symbol]["ask_cents"]:
                 raise LedgerError("launch limit must equal the frozen ask")
+    if not plan.get("opportunity_id"):
+        raise LedgerError("plan requires an opportunity ID")
+    return contracts
+
+
+def stage_plan(ledger, plan):
+    """Freeze one shared snapshot, five decisions, and at most one opening order."""
+    contracts = validate_plan(plan)
+
+    opportunity_id = plan.get("opportunity_id")
+    ledger.record_opportunity(
+        opportunity_id, plan["captured_at"], plan["data_cutoff_at"], plan["market"]
+    )
+    reserved = None
+    for row in plan["decisions"]:
+        bot_id = row["bot_id"]
+        action = row["action"]
+        symbol, quantity, limit_cents = row.get("option_symbol"), row.get("quantity"), row.get("limit_cents")
         decision_id = f"{opportunity_id}-{bot_id}"
         ledger.record_decision(
             decision_id, opportunity_id, bot_id, BOT_RULES[bot_id]["version_id"], action,
@@ -106,7 +125,8 @@ def stage_plan(ledger, plan):
             ledger.reserve_order(client_id, bot_id, symbol, "buy", quantity, limit_cents,
                                  decision_id=decision_id)
             reserved = client_id
-    return {"opportunity_id": opportunity_id, "reserved_order": reserved, "buy_count": len(buys)}
+    return {"opportunity_id": opportunity_id, "reserved_order": reserved,
+            "buy_count": sum(row["action"] == "buy" for row in plan["decisions"])}
 
 
 def submit(ledger, env_file, client_order_id, confirmation):

@@ -2,6 +2,20 @@
 
 Updated 2026-09-21. Owner: Brendan. Repository: `expo7/AI-OPTIONS-DEATHMATCH`.
 
+Generation 1 is active in Alpaca paper trading. The flat launch baseline was
+recorded at 2026-09-21T16:43:32.071542Z. Trend Rider's first attributed order,
+one QQQ261009C00745000 contract, filled and reconciled. A five-minute systemd
+timer synchronizes fills and publishes common marks; lifecycle thresholds create
+alerts but do not automatically sell. Opening and closing submissions remain
+supervised and require the explicit paper-only confirmation token.
+
+The next operating layer is now a supervised decision queue. A reviewed shared
+market snapshot can be recorded once, each of the five contenders can append one
+immutable decision, and queue status exposes missing responses. A complete queue
+can be assembled for review or staged into the existing attributed reservation
+flow, but the queue cannot contact Alpaca or submit an order. Automated market
+discovery and model-provider decision generation are not yet implemented.
+
 ## Current status
 
 First verified public release: preparation page at http://172.236.226.103/ and health endpoint at http://172.236.226.103/healthz. Brendan verified both the browser page and the public health response on 2026-09-20; the health response identified deployed commit `81944f2570685a6d8aa93619f4a27927a4c5fc86`. A manual GitHub Actions release passed at `656b2f014def63cd5de88781b9d6b24136fe0d61`, and the first `master` push release passed at `43fa0870c3e53b41482e94d378ee7f7dfb97f2fd` (GitHub Actions run 35502180586). These are historical verified releases; verify live before operational claims. No competition trades, Alpaca integration, analytics, domain, or TLS yet.
