@@ -2,7 +2,7 @@
 
 ## Current release
 
-The first release serves `/` and `/healthz` through a local Python process. It contains no trading logic or secret material.
+The public service serves the arena, leaderboard, methodology, bot profiles, and `/healthz` through a local Python process. It contains no broker credentials and cannot submit orders. Broker diagnostics, ledger tools, and the disabled paper-submission boundary are separate operator modules that the web process does not import.
 
 ## Server setup (new Deathmatch Linode only)
 
@@ -31,3 +31,15 @@ The root-owned release command refuses a dirty checkout, non-SHA input, and comm
 ## Read-only paper account check
 
 After deploying `alpaca_readonly.py`, the operator may run `python3 /opt/ai-options-deathmatch/alpaca_readonly.py --env-file /etc/ai-options-deathmatch/alpaca.env` as root on the Deathmatch VPS. The command accepts only the exact `https://paper-api.alpaca.markets` endpoint, reads a root-only credential file, performs GET requests for account, positions, open orders (up to 500, refusing a full page), and up to 100 recent fill activities, and prints only status and counts. It does not cancel orders or liquidate positions; inventory and flattening must be verified before Generation 1 starts. It does not print keys or account identifiers, place orders, initialize a database, or modify the website service. If recent fills equal 100, history may be longer; do not treat that count as a complete audit. Do not load broker credentials into the web service until ingestion, reconciliation, and order controls are implemented and reviewed.
+
+## Launch-readiness report
+
+Run the phase-aware read-only check as root:
+
+```bash
+python3 /opt/ai-options-deathmatch/launch_readiness.py \
+  --env-file /etc/ai-options-deathmatch/alpaca.env \
+  --ledger /var/lib/ai-options-deathmatch/ledger.sqlite3
+```
+
+The command prints only Boolean gates and the generation number. It never prints symbols, positions, orders, account identifiers, or credentials. A missing ledger may still produce `safe_to_initialize: true` when the paper account is active and flat. Initialize Generation 1 only in that state. After initialization, require `safe_to_record_baseline: true` before recording the immutable zero-position/zero-order baseline. `execution_ready: true` requires every gate, including the baseline and reconciliation. The ledger, when present, is opened using SQLite read-only mode. Exit codes are 0 for execution-ready, 1 for a valid but incomplete preflight, and 2 for a diagnostic error.

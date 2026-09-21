@@ -14,6 +14,8 @@ The diagnostic paper adapter remains GET-only. It can validate that a broker acc
 
 `alpaca_submit.py` contains a separate, deliberately unwired paper-order boundary. It opens long positions only and refuses to POST unless it receives the exact enable token, finds an immutable flat-account baseline, resolves a tagged decision-linked reservation, confirms an active unblocked paper account, finds no broker open orders, and fully reconciles broker positions to bot allocations. It is not imported by the web process, has no command-line entry point, and has not been invoked against Alpaca.
 
+`launch_readiness.py` provides the operator with a sanitized read-only preflight. It reports whether the account is safe to initialize, safe to baseline, or fully execution-ready. It exposes only Boolean gates, opens any ledger in SQLite read-only mode, and performs no order or database mutations.
+
 ## First release
 
 The public site uses Python's standard library and Caddy; it contains no trading integration. Its leaderboard can read immutable equity snapshots from the competition ledger through a read-only SQLite connection, but results remain hidden unless `RESULTS_PUBLIC=true` and `LEDGER_PATH` explicitly identifies the ledger. The web process cannot initialize or mutate that database.

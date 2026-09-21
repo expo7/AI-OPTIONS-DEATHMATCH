@@ -8,6 +8,7 @@ import hashlib
 import json
 import sqlite3
 from collections import defaultdict
+from pathlib import Path
 
 
 MULTIPLIER = 100
@@ -19,8 +20,9 @@ class LedgerError(ValueError):
 
 
 class Ledger:
-    def __init__(self, path):
-        self.db = sqlite3.connect(path, isolation_level=None, timeout=10)
+    def __init__(self, path, readonly=False):
+        target = f"file:{Path(path).resolve()}?mode=ro" if readonly else path
+        self.db = sqlite3.connect(target, isolation_level=None, timeout=10, uri=readonly)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA foreign_keys=ON")
         self.db.execute("PRAGMA busy_timeout=10000")
