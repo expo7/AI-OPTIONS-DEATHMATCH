@@ -149,7 +149,11 @@ def apply_order_acceptance(ledger, broker_order):
     order = ledger.db.execute("SELECT * FROM orders WHERE client_order_id=?", (client_id,)).fetchone()
     if not order or order["status"] != "reserved":
         raise LedgerError("broker response has no matching reserved order")
-    if broker_order.get("type") != "limit" or broker_order.get("status") not in ("accepted", "new"):
+    # A marketable limit may be partially or completely filled before Alpaca's
+    # POST response reaches us. Binding the verified broker order here is safe;
+    # fill quantities and prices are still ingested only from FILL activities.
+    accepted_statuses = ("accepted", "pending_new", "new", "partially_filled", "filled")
+    if broker_order.get("type") != "limit" or broker_order.get("status") not in accepted_statuses:
         raise LedgerError("broker did not accept the expected limit order")
     try:
         broker_limit = premium_cents(broker_order.get("limit_price"))

@@ -18,6 +18,8 @@ The diagnostic paper adapter remains GET-only. It can validate that a broker acc
 
 `competition_operator.py` is the supervised launch boundary. It freezes one externally reviewed shared snapshot and exactly one decision per contender, validates the frozen Generation 1 liquidity and premium rules, and permits at most one opening order during the launch cycle. Staging never contacts Alpaca. Submission requires the exact paper-enable token and rechecks the account, open orders, positions, baseline, attribution, and reconciliation immediately before placing the tagged limit order. Fill synchronization remains explicit and fail-closed.
 
+Broker order responses that are already partially or completely filled are attached after the same exact-term validation; holdings and cash still change only when the corresponding broker FILL activity is synchronized.
+
 ## First release
 
 The public site uses Python's standard library and Caddy; it contains no trading integration. Its leaderboard can read immutable equity snapshots from the competition ledger through a read-only SQLite connection, but results remain hidden unless `RESULTS_PUBLIC=true` and `LEDGER_PATH` explicitly identifies the ledger. The web process cannot initialize or mutate that database.

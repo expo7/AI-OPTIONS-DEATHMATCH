@@ -92,6 +92,25 @@ class PaperAdapterTest(unittest.TestCase):
         finally:
             db.close()
 
+    def test_immediate_fill_response_is_bound_before_activity_sync(self):
+        db = Ledger(Path(self.tmp.name) / "immediate.sqlite3")
+        try:
+            db.initialize()
+            db.add_bot("alpha", 2_500_000)
+            db.reserve_order("dm-g1-alpha-fast", "alpha", "QQQ261009C00745000", "buy", 1, 898)
+            apply_order_acceptance(db, {
+                "id": "broker-fast", "client_order_id": "dm-g1-alpha-fast", "type": "limit",
+                "status": "filled", "symbol": "QQQ261009C00745000", "side": "buy",
+                "qty": "1", "limit_price": "8.98",
+            })
+            order = db.db.execute(
+                "SELECT status,broker_order_id FROM orders WHERE client_order_id='dm-g1-alpha-fast'"
+            ).fetchone()
+            self.assertEqual((order["status"], order["broker_order_id"]), ("accepted", "broker-fast"))
+            self.assertEqual(db.position("alpha", "QQQ261009C00745000"), 0)
+        finally:
+            db.close()
+
     def test_paginated_fill_sync_applies_oldest_first_and_is_idempotent(self):
         db = Ledger(Path(self.tmp.name) / "sync.sqlite3")
         try:
