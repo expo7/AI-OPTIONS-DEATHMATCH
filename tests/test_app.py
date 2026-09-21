@@ -1,12 +1,16 @@
 import json
+import tempfile
 import threading
 import unittest
 from http.server import ThreadingHTTPServer
+from pathlib import Path
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import urlopen
 
 from app import Handler
 from bots import BOTS
+from ledger import Ledger
 
 
 class PublicRoutesTest(unittest.TestCase):
@@ -45,6 +49,22 @@ class PublicRoutesTest(unittest.TestCase):
         self.assertIn("Competition inactive", page)
         self.assertIn("$10,000", page)
         self.assertNotIn("0.00%", page)
+
+    def test_explicit_publication_flag_renders_ledger_metrics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ledger.sqlite3"
+            ledger = Ledger(path)
+            ledger.initialize()
+            ledger.add_bot("trend", 1_000_000)
+            ledger.record_equity_snapshot("trend", 950_000, "2026-09-21T16:00:00Z")
+            ledger.close()
+            with patch("app.RESULTS_PUBLIC", True), patch("app.LEDGER_PATH", str(path)):
+                leaderboard = self.get_page("/leaderboard")
+                profile = self.get_page("/bots/trend")
+            self.assertIn("Competition active", leaderboard)
+            self.assertIn("-5.00%", leaderboard)
+            self.assertIn("$9,500.00", profile)
+            self.assertIn("2026-09-21T16:00:00Z", profile)
 
     def test_methodology_discloses_rules(self):
         page = self.get_page("/methodology/")

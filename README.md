@@ -10,4 +10,6 @@ The broker account is an execution pool. Each competitor's cash, positions, and 
 
 ## First release
 
-The preparation page uses Python's standard library and Caddy; it contains no trading integration. Run `python3 -m unittest discover -s tests` to check public routes. `deploy/bootstrap-server.sh` provisions and internally verifies this initial release on the dedicated Linode. Further releases need an automated exact-revision workflow.
+The public site uses Python's standard library and Caddy; it contains no trading integration. Its leaderboard can read immutable equity snapshots from the competition ledger through a read-only SQLite connection, but results remain hidden unless `RESULTS_PUBLIC=true` and `LEDGER_PATH` explicitly identifies the ledger. The web process cannot initialize or mutate that database.
+
+Run `python3 -m unittest discover -s tests` to check public routes and accounting behavior. `deploy/bootstrap-server.sh` provisions and internally verifies the service on the dedicated Linode. Production releases use an automated exact-revision workflow.

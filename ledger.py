@@ -52,6 +52,16 @@ class Ledger:
                 fee_cents INTEGER NOT NULL DEFAULT 0 CHECK(fee_cents >= 0),
                 occurred_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS equity_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bot_id TEXT NOT NULL REFERENCES bots(id),
+                equity_cents INTEGER NOT NULL CHECK(equity_cents >= 0),
+                cash_cents INTEGER NOT NULL,
+                occurred_at TEXT NOT NULL,
+                UNIQUE(bot_id, occurred_at)
+            );
+            CREATE INDEX IF NOT EXISTS idx_equity_bot_time
+                ON equity_snapshots(bot_id, occurred_at DESC);
         """)
 
     def add_bot(self, bot_id, starting_cash_cents):
@@ -179,3 +189,23 @@ class Ledger:
         return {row["id"]: self.cash_cents(row["id"])
                 for row in self.db.execute("SELECT id FROM bots")
                 if self.cash_cents(row["id"]) < 0}
+
+    def record_equity_snapshot(self, bot_id, equity_cents, occurred_at):
+        """Record immutable mark-to-market equity for public performance."""
+        if not occurred_at or not isinstance(equity_cents, int) or equity_cents < 0:
+            raise LedgerError("valid timestamp and non-negative integer equity required")
+        cash = self.cash_cents(bot_id)
+        try:
+            self.db.execute(
+                "INSERT INTO equity_snapshots(bot_id,equity_cents,cash_cents,occurred_at) VALUES (?,?,?,?)",
+                (bot_id, equity_cents, cash, occurred_at),
+            )
+            return True
+        except sqlite3.IntegrityError as error:
+            existing = self.db.execute(
+                "SELECT equity_cents,cash_cents FROM equity_snapshots WHERE bot_id=? AND occurred_at=?",
+                (bot_id, occurred_at),
+            ).fetchone()
+            if existing and (existing["equity_cents"], existing["cash_cents"]) == (equity_cents, cash):
+                return False
+            raise LedgerError("equity snapshot timestamp reused with different data") from error

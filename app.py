@@ -10,10 +10,27 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 from bots import BOTS, STARTING_CASH_CENTS, get_bot
+from public_data import load_public_standings
 
 
 COMMIT = os.getenv("APP_COMMIT", "local")
 STARTING_CASH = f"${STARTING_CASH_CENTS / 100:,.0f}"
+RESULTS_PUBLIC = os.getenv("RESULTS_PUBLIC", "false").lower() == "true"
+LEDGER_PATH = os.getenv("LEDGER_PATH", "")
+
+
+def published_standings():
+    if not RESULTS_PUBLIC or not LEDGER_PATH:
+        return {}
+    return load_public_standings(LEDGER_PATH)
+
+
+def money(cents):
+    return f"${cents / 100:,.2f}"
+
+
+def percent(fraction):
+    return f"{fraction:+.2%}"
 
 
 def layout(title, eyebrow, content, description):
@@ -49,13 +66,25 @@ def bot_cards():
     )
 
 
-def leaderboard_table():
+def leaderboard_table(standings=None):
+    standings = standings or {}
+    ranked = sorted(BOTS, key=lambda bot: standings.get(bot.slug, {}).get("return_fraction", float("-inf")), reverse=True)
     rows = "".join(
-        f'''<tr><td class="rank">{number}</td><td><a class="bot-link" href="/bots/{escape(bot.slug)}">{escape(bot.name)}</a><br><small>{escape(bot.kind)}</small></td>
-<td class="metric">{STARTING_CASH}</td><td class="metric">—</td><td class="metric">—</td><td class="metric">0</td></tr>'''
-        for number, bot in enumerate(BOTS, 1)
+        leaderboard_row(number, bot, standings.get(bot.slug))
+        for number, bot in enumerate(ranked, 1)
     )
     return f'''<div class="table-wrap"><table><thead><tr><th>#</th><th>Contender</th><th>Starting cash</th><th>Return</th><th>Max drawdown</th><th>Closed trades</th></tr></thead><tbody>{rows}</tbody></table></div>'''
+
+
+def leaderboard_row(number, bot, metrics):
+    if metrics:
+        return_value = percent(metrics["return_fraction"])
+        drawdown = f'{metrics["max_drawdown_fraction"]:.2%}'
+        trades = metrics["closed_trades"]
+    else:
+        return_value, drawdown, trades = "—", "—", 0
+    return f'''<tr><td class="rank">{number}</td><td><a class="bot-link" href="/bots/{escape(bot.slug)}">{escape(bot.name)}</a><br><small>{escape(bot.kind)}</small></td>
+<td class="metric">{STARTING_CASH}</td><td class="metric">{return_value}</td><td class="metric">{drawdown}</td><td class="metric">{trades}</td></tr>'''
 
 
 def home_page():
@@ -68,17 +97,27 @@ def home_page():
 
 
 def leaderboard_page():
+    standings = published_standings()
+    state = "Competition active." if standings else "Competition inactive."
+    detail = "Standings reflect the latest published mark-to-market equity snapshot." if standings else "Return and drawdown remain blank until the timestamped Generation 1 baseline is established and the first competition fill occurs."
     content = f'''<h1>The leaderboard starts at zero.</h1><p class="lead">Every contender receives {STARTING_CASH} in virtual capital. Rankings will use attributed broker fills—not the shared paper account's historical balance.</p>
-<div class="notice"><strong>Competition inactive.</strong><p>Return and drawdown remain blank until the timestamped Generation 1 baseline is established and the first competition fill occurs.</p></div>{leaderboard_table()}
+<div class="notice"><strong>{state}</strong><p>{detail}</p></div>{leaderboard_table(standings)}
 <div class="section-head"><h2>What will be measured</h2></div><div class="rules"><div class="rule"><h2>Net return</h2><p>Change in each bot's separately maintained virtual equity.</p></div><div class="rule"><h2>Maximum drawdown</h2><p>Largest peak-to-trough decline during the generation.</p></div><div class="rule"><h2>Decision record</h2><p>Trades, declines, rejected orders, and execution blocks all remain visible.</p></div></div>'''
     return layout("Leaderboard", "Generation 1 · Standings", content, "Generation 1 standings for the AI Options Deathmatch paper-trading competition.")
 
 
 def bot_page(bot):
+    metrics = published_standings().get(bot.slug)
+    status = "Active" if metrics else "Preparing"
+    return_value = percent(metrics["return_fraction"]) if metrics else "Not started"
+    equity = money(metrics["equity_cents"]) if metrics else STARTING_CASH
+    closed_trades = metrics["closed_trades"] if metrics else 0
+    notice = "Latest published results." if metrics else "Awaiting Generation 1."
+    notice_detail = f'Results are marked to market as of {escape(metrics["as_of"])}.' if metrics else "This contender has no competition decisions, orders, fills, or returns yet."
     content = f'''<div class="profile"><section><h1>{escape(bot.name)}</h1><p class="lead">{escape(bot.approach)}</p>
-<div class="notice"><strong>Awaiting Generation 1.</strong><p>This contender has no competition decisions, orders, fills, or returns yet.</p></div>
+<div class="notice"><strong>{notice}</strong><p>{notice_detail}</p></div>
 <h2>Public record</h2><p>Once competition trading begins, this page will retain the bot's complete decision and trade history—including losses and opportunities it declines.</p></section>
-<aside class="side"><dl><dt>Type</dt><dd>{escape(bot.kind)}</dd><dt>Starting capital</dt><dd>{STARTING_CASH}</dd><dt>Status</dt><dd>Preparing</dd><dt>Return</dt><dd>Not started</dd><dt>Closed trades</dt><dd>0</dd></dl></aside></div>'''
+<aside class="side"><dl><dt>Type</dt><dd>{escape(bot.kind)}</dd><dt>Starting capital</dt><dd>{STARTING_CASH}</dd><dt>Current equity</dt><dd>{equity}</dd><dt>Status</dt><dd>{status}</dd><dt>Return</dt><dd>{return_value}</dd><dt>Closed trades</dt><dd>{closed_trades}</dd></dl></aside></div>'''
     return layout(bot.name, "Contender profile", content, f"Profile and public competition record for {bot.name}.")
 
 

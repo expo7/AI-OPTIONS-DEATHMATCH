@@ -72,6 +72,14 @@ class SharedAccountLedgerTest(unittest.TestCase):
         self.assertEqual(self.ledger.negative_cash_bots(), {"alpha": -100_000})
         self.assertEqual(self.ledger.reconcile({SYMBOL: 1}), {})
 
+    def test_equity_snapshots_are_immutable_and_idempotent(self):
+        self.assertTrue(self.ledger.record_equity_snapshot("alpha", 2_500_000, WHEN))
+        self.assertFalse(self.ledger.record_equity_snapshot("alpha", 2_500_000, WHEN))
+        with self.assertRaises(LedgerError):
+            self.ledger.record_equity_snapshot("alpha", 2_400_000, WHEN)
+        with self.assertRaises(LedgerError):
+            self.ledger.record_equity_snapshot("alpha", -1, "later")
+
 
 if __name__ == "__main__":
     unittest.main()
