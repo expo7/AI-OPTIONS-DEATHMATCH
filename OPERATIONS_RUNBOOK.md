@@ -43,3 +43,25 @@ python3 /opt/ai-options-deathmatch/launch_readiness.py \
 ```
 
 The command prints only Boolean gates and the generation number. It never prints symbols, positions, orders, account identifiers, or credentials. A missing ledger may still produce `safe_to_initialize: true` when the paper account is active and flat. Initialize Generation 1 only in that state. After initialization, require `safe_to_record_baseline: true` before recording the immutable zero-position/zero-order baseline. `execution_ready: true` requires every gate, including the baseline and reconciliation. The ledger, when present, is opened using SQLite read-only mode. Exit codes are 0 for execution-ready, 1 for a valid but incomplete preflight, and 2 for a diagnostic error.
+
+## Supervised launch cycle
+
+Stage an operator-reviewed JSON plan without broker contact:
+
+```bash
+python3 competition_operator.py stage /root/first-cycle.json
+```
+
+Only after reviewing the returned tagged client order ID, submit that reservation to the paper endpoint:
+
+```bash
+python3 competition_operator.py submit CLIENT_ORDER_ID --confirm ENABLE_DEATHMATCH_PAPER_ORDERS
+```
+
+Synchronize post-baseline fills explicitly:
+
+```bash
+python3 competition_operator.py sync
+```
+
+The launch cycle permits at most one buy. It requires all five decisions, forces the cash benchmark to decline, checks expiry, open interest, volume, spread, premium, and exact frozen-ask pricing, and fails closed if broker inventory or local attribution does not reconcile.

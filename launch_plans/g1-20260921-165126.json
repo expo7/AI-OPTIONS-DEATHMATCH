@@ -1,0 +1,64 @@
+{
+  "generation": 1,
+  "opportunity_id": "opp-20260921-165126",
+  "captured_at": "2026-09-21T16:51:26.951742Z",
+  "data_cutoff_at": "2026-09-21T16:51:26.951742Z",
+  "market": {
+    "underlying": "QQQ",
+    "underlying_price": 738.66,
+    "underlying_trade_at": "2026-09-21T16:51:23.565520Z",
+    "evidence": {
+      "prior_close": 721.45,
+      "session_open": 727.89,
+      "session_high": 739.39,
+      "session_vwap": 733.870705,
+      "recent_range_high": 724.125,
+      "source_note": "Alpaca SIP daily bars, IEX latest underlying trade, Alpaca indicative option quote, and Unusual Whales contract activity."
+    },
+    "contracts": [
+      {
+        "symbol": "QQQ261009C00745000",
+        "type": "call",
+        "strike": 745,
+        "expiration": "2026-10-09",
+        "bid_cents": 893,
+        "ask_cents": 898,
+        "quote_at": "2026-09-21T16:51:26.951742Z",
+        "open_interest": 1292,
+        "volume": 1033,
+        "implied_volatility": 0.1801907807752957,
+        "delta": 0.426001045698662
+      }
+    ]
+  },
+  "decisions": [
+    {
+      "bot_id": "trend",
+      "action": "buy",
+      "option_symbol": "QQQ261009C00745000",
+      "quantity": 1,
+      "limit_cents": 898,
+      "public_rationale": "QQQ held above its recent range and session VWAP while the selected call met every shared liquidity and risk limit."
+    },
+    {
+      "bot_id": "reversal",
+      "action": "decline",
+      "public_rationale": "The move remained directionally strong without the reversal confirmation required by this strategy."
+    },
+    {
+      "bot_id": "breakout",
+      "action": "decline",
+      "public_rationale": "The breakout qualified, but the supervised launch cycle permits only one opening order while execution is verified."
+    },
+    {
+      "bot_id": "catalyst",
+      "action": "decline",
+      "public_rationale": "No dated public catalyst was included in the shared snapshot, so this strategy had no qualifying trade."
+    },
+    {
+      "bot_id": "cash",
+      "action": "decline",
+      "public_rationale": "The deterministic benchmark retained cash as required by its frozen rules."
+    }
+  ]
+}
