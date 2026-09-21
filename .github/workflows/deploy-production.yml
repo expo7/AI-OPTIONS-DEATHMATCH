@@ -46,7 +46,7 @@ jobs:
         run: |
           for attempt in {1..20}; do
             if curl -fsS --max-time 5 "http://$PROD_HOST/healthz" | grep -Fq "\"commit\": \"$REVISION\"" &&
-               curl -fsS --max-time 5 "http://$PROD_HOST/" | grep -Fq 'No competition trades have begun'; then
+               curl -fsS --max-time 5 "http://$PROD_HOST/" | grep -Eq 'No competition trades have begun|Competition active'; then
               exit 0
             fi
             sleep 2

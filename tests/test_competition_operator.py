@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from bots import BOTS
-from competition_operator import stage_plan
+from competition_operator import mark, stage_plan
 from generation_one import BOT_RULES, frozen_rules
 from ledger import Ledger, LedgerError
 
@@ -61,6 +61,31 @@ class CompetitionOperatorTest(unittest.TestCase):
         plan["decisions"][1] = {**plan["decisions"][0], "bot_id": "reversal"}
         with self.assertRaises(LedgerError):
             stage_plan(self.db, plan)
+
+    def test_common_mark_records_and_publishes_every_contender(self):
+        plan = self.plan()
+        stage_plan(self.db, plan)
+        self.db.accept_order("dm-g1-trend-1-164530", "broker-1")
+        self.db.record_fill("fill-1", "dm-g1-trend-1-164530", 1, 880, WHEN)
+
+        class Reader:
+            def account(self):
+                return {"status": "ACTIVE", "trading_blocked": False}
+            def open_orders(self):
+                return []
+            def positions(self):
+                return [{"symbol": "QQQ261009C00745000", "qty": "1", "current_price": "9.00"}]
+
+        from unittest.mock import patch
+        target = Path(self.tmp.name) / "public" / "results.json"
+        with patch("competition_operator.load_credentials", return_value={
+            "APCA_API_BASE_URL": "https://paper-api.alpaca.markets",
+            "APCA_API_KEY_ID": "id", "APCA_API_SECRET_KEY": "secret",
+        }), patch("competition_operator.PaperReader", return_value=Reader()):
+            result = mark(self.db, "unused", target, "2026-09-21T17:00:00Z")
+        self.assertEqual(result["published"], 5)
+        self.assertEqual(self.db.db.execute("SELECT COUNT(*) FROM equity_snapshots").fetchone()[0], 5)
+        self.assertIn('"trend"', target.read_text())
 
 
 if __name__ == "__main__":

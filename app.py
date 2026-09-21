@@ -33,7 +33,7 @@ def percent(fraction):
     return f"{fraction:+.2%}"
 
 
-def layout(title, eyebrow, content, description):
+def layout(title, eyebrow, content, description, active=False):
     """Render a complete page with shared navigation and disclosures."""
     return f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -56,13 +56,14 @@ main{{padding:72px 0 90px}}.eyebrow{{color:var(--blue);font-size:.78rem;font-wei
 @media(max-width:700px){{nav div{{gap:13px}}nav div a:first-child{{display:none}}main{{padding-top:48px}}.profile{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}footer .wrap{{display:block}}}}
 </style></head><body><div class="wrap"><nav><a class="brand" href="/">AI OPTIONS <b>DEATHMATCH</b></a><div><a href="/">Arena</a><a href="/leaderboard">Leaderboard</a><a href="/methodology">Rules</a></div></nav>
 <main><div class="eyebrow">{escape(eyebrow)}</div>{content}</main></div>
-<footer><div class="wrap"><span>Paper-trading experiment · Not investment advice</span><span>Generation 1 · Preparing</span></div></footer></body></html>'''
+<footer><div class="wrap"><span>Paper-trading experiment · Not investment advice</span><span>Generation 1 · {"Active" if active else "Preparing"}</span></div></footer></body></html>'''
 
 
-def bot_cards():
+def bot_cards(standings=None):
+    standings = standings or {}
     return "".join(
         f'''<a class="card" href="/bots/{escape(bot.slug)}"><div class="tag">{escape(bot.kind)}</div>
-<h2>{escape(bot.name)}</h2><p>{escape(bot.approach)}</p><span class="status">Awaiting launch</span></a>'''
+<h2>{escape(bot.name)}</h2><p>{escape(bot.approach)}</p><span class="status">{"Active" if bot.slug in standings else "Awaiting launch"}</span></a>'''
         for bot in BOTS
     )
 
@@ -89,22 +90,27 @@ def leaderboard_row(number, bot, metrics):
 
 
 def home_page():
+    standings = published_standings()
+    active = bool(standings)
+    notice = "Competition active." if active else "No competition trades have begun."
+    detail = "Live standings reflect immutable attributed fills and the latest shared mark." if active else "The execution and accounting system is being prepared. Empty statistics are shown as unavailable—not as zero performance."
     content = f'''<h1>Five contenders.<br>One options arena.</h1>
 <p class="lead">Four AI strategies and a cash benchmark will receive the same opportunity set and {STARTING_CASH} in separate virtual capital. Every decision, fill, loss, and elimination will remain public.</p>
 <div class="actions"><a class="button primary" href="/leaderboard">View the leaderboard</a><a class="button" href="/methodology">Read the rules</a></div>
-<div class="notice"><strong>No competition trades have begun.</strong><p>The execution and accounting system is being prepared. Empty statistics are shown as unavailable—not as zero performance.</p></div>
-<div class="section-head"><h2>Generation 1 roster</h2><a href="/methodology">How it works →</a></div><section class="grid" aria-label="Candidate bots">{bot_cards()}</section>'''
-    return layout("The arena", "Generation 1 · Preparing", content, "Five options strategies compete in a transparent paper-trading experiment.")
+<div class="notice"><strong>{notice}</strong><p>{detail}</p></div>
+<div class="section-head"><h2>Generation 1 roster</h2><a href="/methodology">How it works →</a></div><section class="grid" aria-label="Candidate bots">{bot_cards(standings)}</section>'''
+    return layout("The arena", f'Generation 1 · {"Active" if active else "Preparing"}', content, "Five options strategies compete in a transparent paper-trading experiment.", active)
 
 
 def leaderboard_page():
     standings = published_standings()
     state = "Competition active." if standings else "Competition inactive."
     detail = "Standings reflect the latest published mark-to-market equity snapshot." if standings else "Return and drawdown remain blank until the timestamped Generation 1 baseline is established and the first competition fill occurs."
-    content = f'''<h1>The leaderboard starts at zero.</h1><p class="lead">Every contender receives {STARTING_CASH} in virtual capital. Rankings will use attributed broker fills—not the shared paper account's historical balance.</p>
+    heading = "Live Generation 1 standings." if standings else "The leaderboard starts at zero."
+    content = f'''<h1>{heading}</h1><p class="lead">Every contender receives {STARTING_CASH} in virtual capital. Rankings use attributed broker fills—not the shared paper account's historical balance.</p>
 <div class="notice"><strong>{state}</strong><p>{detail}</p></div>{leaderboard_table(standings)}
 <div class="section-head"><h2>What will be measured</h2></div><div class="rules"><div class="rule"><h2>Net return</h2><p>Change in each bot's separately maintained virtual equity.</p></div><div class="rule"><h2>Maximum drawdown</h2><p>Largest peak-to-trough decline during the generation.</p></div><div class="rule"><h2>Decision record</h2><p>Trades, declines, rejected orders, and execution blocks all remain visible.</p></div></div>'''
-    return layout("Leaderboard", "Generation 1 · Standings", content, "Generation 1 standings for the AI Options Deathmatch paper-trading competition.")
+    return layout("Leaderboard", "Generation 1 · Standings", content, "Generation 1 standings for the AI Options Deathmatch paper-trading competition.", bool(standings))
 
 
 def bot_page(bot):
@@ -120,7 +126,7 @@ def bot_page(bot):
 <div class="notice"><strong>{notice}</strong><p>{notice_detail}</p></div>
 <h2>Public record</h2><p>Once competition trading begins, this page will retain the bot's complete decision and trade history—including losses and opportunities it declines.</p>{decisions}</section>
 <aside class="side"><dl><dt>Type</dt><dd>{escape(bot.kind)}</dd><dt>Starting capital</dt><dd>{STARTING_CASH}</dd><dt>Current equity</dt><dd>{equity}</dd><dt>Status</dt><dd>{status}</dd><dt>Return</dt><dd>{return_value}</dd><dt>Closed trades</dt><dd>{closed_trades}</dd></dl></aside></div>'''
-    return layout(bot.name, "Contender profile", content, f"Profile and public competition record for {bot.name}.")
+    return layout(bot.name, "Contender profile", content, f"Profile and public competition record for {bot.name}.", bool(metrics))
 
 
 def decision_history(decisions):

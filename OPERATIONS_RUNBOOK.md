@@ -64,4 +64,12 @@ Synchronize post-baseline fills explicitly:
 python3 competition_operator.py sync
 ```
 
+After synchronization, record a common broker mark and atomically publish the sanitized standings file:
+
+```bash
+python3 competition_operator.py mark
+```
+
+The public web process reads only `/var/lib/ai-options-deathmatch-public/results.json`. It receives no broker credentials and has no access to the operational ledger.
+
 The launch cycle permits at most one buy. It requires all five decisions, forces the cash benchmark to decline, checks expiry, open interest, volume, spread, premium, and exact frozen-ask pricing, and fails closed if broker inventory or local attribution does not reconcile.

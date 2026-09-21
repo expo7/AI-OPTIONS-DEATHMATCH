@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from ledger import Ledger
-from public_data import load_public_standings
+from public_data import load_public_standings, write_public_results
 
 
 class PublicStandingsTest(unittest.TestCase):
@@ -40,6 +40,15 @@ class PublicStandingsTest(unittest.TestCase):
         self.assertEqual(result["as_of"], "2026-09-21T16:30:00Z")
         self.assertEqual(result["recent_decisions"][0]["action"], "decline")
         self.assertEqual(result["recent_decisions"][0]["public_rationale"], "No contract passed the liquidity filter.")
+
+    def test_sanitized_json_export_round_trip(self):
+        self.ledger.record_equity_snapshot("trend", 1_025_000, "2026-09-21T17:00:00Z")
+        target = Path(self.tmp.name) / "public" / "results.json"
+        self.assertEqual(write_public_results(self.ledger, target, "2026-09-21T17:00:00Z"), 1)
+        self.assertEqual(target.stat().st_mode & 0o777, 0o644)
+        result = load_public_standings(target)
+        self.assertEqual(result["trend"]["equity_cents"], 1_025_000)
+        self.assertNotIn("orders", target.read_text())
 
 
 if __name__ == "__main__":

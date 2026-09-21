@@ -10,11 +10,12 @@ import json
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from alpaca_readonly import PaperReader, load_credentials, sync_fill_activities
+from alpaca_readonly import PaperReader, load_credentials, premium_cents, sync_fill_activities
 from alpaca_submit import PaperSubmitter, submit_reserved_order
 from bots import BOTS
 from generation_one import BOT_RULES, COMMON_RULES, GENERATION
 from ledger import Ledger, LedgerError
+from public_data import write_public_results
 
 
 def _utc(value, field):
@@ -126,6 +127,43 @@ def sync(ledger, env_file):
     )
 
 
+def mark(ledger, env_file, public_results, occurred_at=None):
+    """Reconcile broker inventory and record one common mark for every bot."""
+    reader = PaperReader(load_credentials(env_file))
+    account = reader.account()
+    if account.get("status") != "ACTIVE" or account.get("trading_blocked") is True:
+        raise LedgerError("paper account is not currently eligible")
+    if reader.open_orders():
+        raise LedgerError("cannot mark while broker orders are unresolved")
+    positions = reader.positions()
+    from alpaca_submit import broker_position_map
+    if ledger.reconcile(broker_position_map(positions)):
+        raise LedgerError("broker positions do not reconcile to bot allocations")
+    prices = {}
+    for position in positions:
+        prices[position["symbol"]] = premium_cents(position.get("current_price"))
+    timestamp = occurred_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    equities = {}
+    for bot in BOTS:
+        equity = ledger.cash_cents(bot.slug)
+        holdings = ledger.db.execute(
+            """SELECT o.symbol,SUM(CASE WHEN o.side='buy' THEN f.quantity ELSE -f.quantity END) quantity
+               FROM fills f JOIN orders o ON o.client_order_id=f.client_order_id
+               WHERE o.bot_id=? GROUP BY o.symbol""", (bot.slug,)
+        ).fetchall()
+        for holding in holdings:
+            if holding["quantity"] and holding["symbol"] not in prices:
+                raise LedgerError("attributed holding has no broker mark")
+            equity += holding["quantity"] * prices.get(holding["symbol"], 0) * 100
+        if equity < 0:
+            raise LedgerError("negative bot equity cannot be published")
+        equities[bot.slug] = equity
+    for bot_id, equity in equities.items():
+        ledger.record_equity_snapshot(bot_id, equity, timestamp)
+    published = write_public_results(ledger, public_results, timestamp)
+    return {"marked_at": timestamp, "contenders": len(equities), "published": published}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ledger", default="/var/lib/ai-options-deathmatch/ledger.sqlite3")
@@ -137,6 +175,8 @@ def main():
     send.add_argument("client_order_id")
     send.add_argument("--confirm", required=True)
     commands.add_parser("sync")
+    marking = commands.add_parser("mark")
+    marking.add_argument("--public-results", default="/var/lib/ai-options-deathmatch-public/results.json")
     args = parser.parse_args()
 
     ledger = Ledger(args.ledger)
@@ -145,8 +185,10 @@ def main():
             result = stage_plan(ledger, json.loads(args.plan.read_text()))
         elif args.command == "submit":
             result = submit(ledger, args.env_file, args.client_order_id, args.confirm)
-        else:
+        elif args.command == "sync":
             result = sync(ledger, args.env_file)
+        else:
+            result = mark(ledger, args.env_file, args.public_results)
         print(json.dumps(result, indent=2, sort_keys=True))
     finally:
         ledger.close()

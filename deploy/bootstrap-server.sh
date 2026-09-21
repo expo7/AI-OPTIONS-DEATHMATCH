@@ -12,7 +12,7 @@ apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y caddy git python3 curl
 
 revision=$(runuser -u deploy -- git rev-parse HEAD)
-printf 'APP_COMMIT=%s\n' "$revision" > /etc/ai-options-deathmatch.env
+printf 'APP_COMMIT=%s\nRESULTS_PUBLIC=true\nLEDGER_PATH=/var/lib/ai-options-deathmatch-public/results.json\n' "$revision" > /etc/ai-options-deathmatch.env
 chmod 644 /etc/ai-options-deathmatch.env
 install -m 644 deploy/deathmatch.service /etc/systemd/system/deathmatch.service
 install -m 644 deploy/Caddyfile.ip /etc/caddy/Caddyfile

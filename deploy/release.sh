@@ -18,7 +18,7 @@ git_deploy merge-base --is-ancestor "$revision" refs/remotes/origin/master || { 
 
 previous=$(git_deploy rev-parse HEAD)
 git_deploy checkout --detach "$revision"
-printf 'APP_COMMIT=%s\n' "$revision" >/etc/ai-options-deathmatch.env
+printf 'APP_COMMIT=%s\nRESULTS_PUBLIC=true\nLEDGER_PATH=/var/lib/ai-options-deathmatch-public/results.json\n' "$revision" >/etc/ai-options-deathmatch.env
 chmod 644 /etc/ai-options-deathmatch.env
 systemctl restart deathmatch
 
