@@ -53,6 +53,7 @@ main{{padding:72px 0 90px}}.eyebrow{{color:var(--blue);font-size:.78rem;font-wei
 .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:35px 0}}.stat{{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:18px}}.stat span{{display:block;color:var(--muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.08em}}.stat strong{{font-size:1.35rem}}.rules{{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:15px;margin-top:25px}}.rule{{border-top:2px solid var(--line);padding-top:16px}}.rule h2{{font-size:1.08rem;margin:0 0 5px}}.rule p{{margin:0;font-size:.94rem}}
 .profile{{display:grid;grid-template-columns:2fr 1fr;gap:40px;align-items:start}}.side{{border:1px solid var(--line);background:var(--panel);padding:22px;border-radius:12px}}.side dl{{margin:0}}.side dt{{color:var(--muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.08em;margin-top:15px}}.side dt:first-child{{margin-top:0}}.side dd{{margin:2px 0;font-weight:700}}footer{{border-top:1px solid var(--line);padding:28px 0 42px;color:var(--muted);font-size:.82rem}}footer .wrap{{display:flex;justify-content:space-between;gap:20px}}
 .decisions{{margin-top:34px}}.decision{{border-top:1px solid var(--line);padding:16px 0}}.decision header{{display:flex;justify-content:space-between;gap:15px}}.decision strong{{text-transform:capitalize}}.decision time{{color:var(--muted);font-size:.82rem}}.decision p{{margin:.35em 0}}.contract{{color:var(--blue);font-size:.85rem}}
+.position{{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:18px;margin:12px 0}}.position header{{display:flex;justify-content:space-between;gap:18px}}.position dl{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0 0}}.position dt{{color:var(--muted);font-size:.72rem;text-transform:uppercase}}.position dd{{margin:2px 0;font-weight:700}}.warning{{color:#ffd37c}}
 @media(max-width:700px){{nav div{{gap:13px}}nav div a:first-child{{display:none}}main{{padding-top:48px}}.profile{{grid-template-columns:1fr}}.stats{{grid-template-columns:1fr 1fr}}footer .wrap{{display:block}}}}
 </style></head><body><div class="wrap"><nav><a class="brand" href="/">AI OPTIONS <b>DEATHMATCH</b></a><div><a href="/">Arena</a><a href="/leaderboard">Leaderboard</a><a href="/methodology">Rules</a></div></nav>
 <main><div class="eyebrow">{escape(eyebrow)}</div>{content}</main></div>
@@ -122,9 +123,10 @@ def bot_page(bot):
     notice = "Latest published results." if metrics else "Awaiting Generation 1."
     notice_detail = f'Results are marked to market as of {escape(metrics["as_of"])}.' if metrics else "This contender has no competition decisions, orders, fills, or returns yet."
     decisions = decision_history(metrics.get("recent_decisions", [])) if metrics else ""
+    positions = position_history(metrics.get("open_positions", [])) if metrics else ""
     content = f'''<div class="profile"><section><h1>{escape(bot.name)}</h1><p class="lead">{escape(bot.approach)}</p>
 <div class="notice"><strong>{notice}</strong><p>{notice_detail}</p></div>
-<h2>Public record</h2><p>Once competition trading begins, this page will retain the bot's complete decision and trade history—including losses and opportunities it declines.</p>{decisions}</section>
+<h2>Public record</h2><p>This page retains the bot's decisions, open positions, and marked performance—including losses and opportunities it declines.</p>{positions}{decisions}</section>
 <aside class="side"><dl><dt>Type</dt><dd>{escape(bot.kind)}</dd><dt>Starting capital</dt><dd>{STARTING_CASH}</dd><dt>Current equity</dt><dd>{equity}</dd><dt>Status</dt><dd>{status}</dd><dt>Return</dt><dd>{return_value}</dd><dt>Closed trades</dt><dd>{closed_trades}</dd></dl></aside></div>'''
     return layout(bot.name, "Contender profile", content, f"Profile and public competition record for {bot.name}.", bool(metrics))
 
@@ -139,6 +141,17 @@ def decision_history(decisions):
             contract = f'<div class="contract">{escape(decision["option_symbol"])} · {decision["quantity"]} contract(s) · limit {money(decision["limit_cents"])}</div>'
         items.append(f'''<article class="decision"><header><strong>{escape(decision["action"])}</strong><time>{escape(decision["decided_at"])}</time></header><p>{escape(decision["public_rationale"])}</p>{contract}</article>''')
     return '<section class="decisions"><h2>Recent decisions</h2>' + "".join(items) + "</section>"
+
+
+def position_history(positions):
+    if not positions:
+        return ""
+    items = []
+    for position in positions:
+        due = '<span class="warning">Expiry exit due</span>' if position["expiry_exit_due"] else f'{position["days_to_expiry"]} days to expiry'
+        items.append(f'''<article class="position"><header><strong>{escape(position["symbol"])}</strong><span>{due}</span></header>
+<dl><div><dt>Quantity</dt><dd>{position["quantity"]}</dd></div><div><dt>Market value</dt><dd>{money(position["market_value_cents"])}</dd></div><div><dt>Unrealized return</dt><dd>{percent(position["return_fraction"])}</dd></div></dl></article>''')
+    return '<section class="decisions"><h2>Open positions</h2>' + "".join(items) + "</section>"
 
 
 def methodology_page():

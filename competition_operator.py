@@ -144,6 +144,7 @@ def mark(ledger, env_file, public_results, occurred_at=None):
         prices[position["symbol"]] = premium_cents(position.get("current_price"))
     timestamp = occurred_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     equities = {}
+    public_positions = {}
     for bot in BOTS:
         equity = ledger.cash_cents(bot.slug)
         holdings = ledger.db.execute(
@@ -151,17 +152,71 @@ def mark(ledger, env_file, public_results, occurred_at=None):
                FROM fills f JOIN orders o ON o.client_order_id=f.client_order_id
                WHERE o.bot_id=? GROUP BY o.symbol""", (bot.slug,)
         ).fetchall()
+        bot_positions = []
         for holding in holdings:
             if holding["quantity"] and holding["symbol"] not in prices:
                 raise LedgerError("attributed holding has no broker mark")
             equity += holding["quantity"] * prices.get(holding["symbol"], 0) * 100
+            if holding["quantity"]:
+                symbol = holding["symbol"]
+                cost = open_lot_cost_cents(ledger, bot.slug, symbol)
+                value = holding["quantity"] * prices[symbol] * 100
+                expiration = option_expiration(symbol)
+                days = (expiration - _utc(timestamp, "mark timestamp").date()).days
+                bot_positions.append({
+                    "symbol": symbol, "quantity": holding["quantity"],
+                    "cost_basis_cents": cost, "market_value_cents": value,
+                    "unrealized_pl_cents": value - cost,
+                    "return_fraction": (value - cost) / cost if cost else 0.0,
+                    "mark_cents": prices[symbol], "expiration": expiration.isoformat(),
+                    "days_to_expiry": days, "expiry_exit_due": days <= 7,
+                })
         if equity < 0:
             raise LedgerError("negative bot equity cannot be published")
         equities[bot.slug] = equity
+        public_positions[bot.slug] = bot_positions
     for bot_id, equity in equities.items():
         ledger.record_equity_snapshot(bot_id, equity, timestamp)
-    published = write_public_results(ledger, public_results, timestamp)
-    return {"marked_at": timestamp, "contenders": len(equities), "published": published}
+    published = write_public_results(ledger, public_results, timestamp, public_positions)
+    exits_due = sum(position["expiry_exit_due"] for rows in public_positions.values() for position in rows)
+    return {"marked_at": timestamp, "contenders": len(equities), "published": published,
+            "open_positions": sum(map(len, public_positions.values())), "expiry_exits_due": exits_due}
+
+
+def option_expiration(symbol):
+    """Extract the OCC YYMMDD expiration from an option symbol."""
+    if not isinstance(symbol, str) or len(symbol) < 15:
+        raise LedgerError("invalid OCC option symbol")
+    suffix = symbol[-15:]
+    try:
+        return datetime.strptime(suffix[:6], "%y%m%d").date()
+    except ValueError:
+        raise LedgerError("invalid OCC option expiration") from None
+
+
+def open_lot_cost_cents(ledger, bot_id, symbol):
+    """Return remaining FIFO premium cost, including the 100-share multiplier."""
+    rows = ledger.db.execute(
+        """SELECT o.side,f.quantity,f.price_cents FROM fills f
+           JOIN orders o ON o.client_order_id=f.client_order_id
+           WHERE o.bot_id=? AND o.symbol=? ORDER BY f.occurred_at,f.broker_fill_id""",
+        (bot_id, symbol),
+    ).fetchall()
+    lots = []
+    for row in rows:
+        if row["side"] == "buy":
+            lots.append([row["quantity"], row["price_cents"]])
+            continue
+        remaining = row["quantity"]
+        while remaining and lots:
+            consumed = min(remaining, lots[0][0])
+            lots[0][0] -= consumed
+            remaining -= consumed
+            if lots[0][0] == 0:
+                lots.pop(0)
+        if remaining:
+            raise LedgerError("sell fills exceed FIFO lots")
+    return sum(quantity * price * 100 for quantity, price in lots)
 
 
 def main():

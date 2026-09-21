@@ -44,10 +44,12 @@ class PublicStandingsTest(unittest.TestCase):
     def test_sanitized_json_export_round_trip(self):
         self.ledger.record_equity_snapshot("trend", 1_025_000, "2026-09-21T17:00:00Z")
         target = Path(self.tmp.name) / "public" / "results.json"
-        self.assertEqual(write_public_results(self.ledger, target, "2026-09-21T17:00:00Z"), 1)
+        positions = {"trend": [{"symbol": "QQQ261009C00745000", "quantity": 1}]}
+        self.assertEqual(write_public_results(self.ledger, target, "2026-09-21T17:00:00Z", positions), 1)
         self.assertEqual(target.stat().st_mode & 0o777, 0o644)
         result = load_public_standings(target)
         self.assertEqual(result["trend"]["equity_cents"], 1_025_000)
+        self.assertEqual(result["trend"]["open_positions"][0]["quantity"], 1)
         self.assertNotIn("orders", target.read_text())
 
 

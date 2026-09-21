@@ -99,12 +99,15 @@ def build_public_standings(db):
     return standings
 
 
-def write_public_results(ledger, path, generated_at):
+def write_public_results(ledger, path, generated_at, open_positions=None):
     """Atomically write a credential-free, world-readable standings document."""
     target = Path(path)
     target.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
-    payload = {"generation": 1, "generated_at": generated_at,
-               "standings": build_public_standings(ledger.db)}
+    standings = build_public_standings(ledger.db)
+    for bot_id, positions in (open_positions or {}).items():
+        if bot_id in standings:
+            standings[bot_id]["open_positions"] = positions
+    payload = {"generation": 1, "generated_at": generated_at, "standings": standings}
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
     descriptor, temporary = tempfile.mkstemp(prefix=target.name + ".", dir=target.parent)
     try:

@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from bots import BOTS
-from competition_operator import mark, stage_plan
+from competition_operator import mark, open_lot_cost_cents, option_expiration, stage_plan
 from generation_one import BOT_RULES, frozen_rules
 from ledger import Ledger, LedgerError
 
@@ -84,8 +84,19 @@ class CompetitionOperatorTest(unittest.TestCase):
         }), patch("competition_operator.PaperReader", return_value=Reader()):
             result = mark(self.db, "unused", target, "2026-09-21T17:00:00Z")
         self.assertEqual(result["published"], 5)
+        self.assertEqual(result["open_positions"], 1)
+        self.assertEqual(result["expiry_exits_due"], 0)
         self.assertEqual(self.db.db.execute("SELECT COUNT(*) FROM equity_snapshots").fetchone()[0], 5)
         self.assertIn('"trend"', target.read_text())
+
+    def test_fifo_cost_and_occ_expiration(self):
+        plan = self.plan()
+        stage_plan(self.db, plan)
+        order = "dm-g1-trend-1-164530"
+        self.db.accept_order(order, "broker-1")
+        self.db.record_fill("fill-1", order, 1, 880, WHEN)
+        self.assertEqual(open_lot_cost_cents(self.db, "trend", "QQQ261009C00745000"), 88_000)
+        self.assertEqual(option_expiration("QQQ261009C00745000").isoformat(), "2026-10-09")
 
 
 if __name__ == "__main__":
