@@ -72,4 +72,12 @@ python3 competition_operator.py mark
 
 The public web process reads only `/var/lib/ai-options-deathmatch-public/results.json`. It receives no broker credentials and has no access to the operational ledger.
 
+Install the root-only five-minute updater once after deployment:
+
+```bash
+sudo bash deploy/install-operations.sh
+```
+
+The timer checks Alpaca's market clock and exits without touching the ledger when the market is closed. While open, it synchronizes attributed fills before recording and publishing a common mark. It never stages decisions or submits, replaces, or cancels orders.
+
 The launch cycle permits at most one buy. It requires all five decisions, forces the cash benchmark to decline, checks expiry, open interest, volume, spread, premium, and exact frozen-ask pricing, and fails closed if broker inventory or local attribution does not reconcile.

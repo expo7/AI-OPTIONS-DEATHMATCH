@@ -57,6 +57,9 @@ class PaperReader:
     def account(self):
         return self.get("/v2/account")
 
+    def clock(self):
+        return self.get("/v2/clock")
+
     def positions(self):
         return self.get("/v2/positions")
 
