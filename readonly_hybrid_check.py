@@ -21,26 +21,30 @@ def check(env_file="/etc/ai-options-deathmatch/alpaca.env"):
     now = datetime.now(timezone.utc)
     start = now.date() + timedelta(days=COMMON_RULES["days_to_expiry"]["minimum"])
     end = now.date() + timedelta(days=COMMON_RULES["days_to_expiry"]["maximum"])
-    # Probe an actual monthly or weekly expiration, keeping each Alpaca chain bounded.
-    for days in range((end - start).days + 1):
-        expiry = start + timedelta(days=days)
-        if expiry.weekday() != 4:
-            continue
-        contracts = reader.option_chain("SPY", expiry.isoformat(), expiry.isoformat())
-        reasons = Counter()
-        for contract in contracts:
-            try:
-                _validate_contract(contract, now)
-            except LedgerError as error:
-                reasons[str(error)] += 1
+    # Probe every Generation 1 underlying, one expiration at a time.
+    for underlying in ("SPY", "QQQ", "AAPL", "MSFT", "NVDA"):
+        for days in range((end - start).days + 1):
+            expiry = start + timedelta(days=days)
+            if expiry.weekday() != 4:
                 continue
-            return {key: contract[key] for key in (
-                "symbol", "bid_cents", "ask_cents", "open_interest", "volume",
-                "quote_source", "open_interest_source", "volume_source", "liquidity_observed_at")}
-        summary.append({"expiration": expiry.isoformat(), **reader.last_diagnostics,
-                        "rejections": dict(reasons)})
+            contracts = reader.option_chain(underlying, expiry.isoformat(), expiry.isoformat())
+            reasons = Counter()
+            for contract in contracts:
+                try:
+                    _validate_contract(contract, now)
+                except LedgerError as error:
+                    reasons[str(error)] += 1
+                    continue
+                return {key: contract[key] for key in (
+                    "symbol", "bid_cents", "ask_cents", "open_interest", "volume",
+                    "quote_source", "open_interest_source", "volume_source", "liquidity_observed_at")}
+            summary.append({"underlying": underlying, "expiration": expiry.isoformat(),
+                            **reader.last_diagnostics, "max_open_interest": max(
+                                (c["open_interest"] for c in contracts), default=None),
+                            "max_volume": max((c["volume"] for c in contracts), default=None),
+                            "rejections": dict(reasons)})
     print(json.dumps({"paper_account": "ACTIVE", "diagnostics": summary}, sort_keys=True))
-    raise LedgerError("no combined SPY contract passed liquidity validation")
+    raise LedgerError("no combined contract passed liquidity validation")
 
 
 if __name__ == "__main__":
