@@ -31,7 +31,7 @@ if [[ ! -x /opt/ai-options-deathmatch-venv/bin/python ]] ||
     fi
     /opt/ai-options-deathmatch-venv/bin/pip install --disable-pip-version-check -r requirements-operations.txt
 fi
-./deploy/install-operations.sh
+bash deploy/install-operations.sh
 for timer in deathmatch-update.timer deathmatch-entries.timer; do
     systemctl is-enabled --quiet "$timer"
     systemctl is-active --quiet "$timer"
