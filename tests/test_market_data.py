@@ -132,6 +132,12 @@ class MarketDataReaderTest(unittest.TestCase):
         with self.assertRaises(LedgerError):
             reader.option_chain("SPY", "2026-10-01", "2026-11-01", max_pages=5)
 
+    def test_more_than_twenty_pages_are_allowed_but_bounded(self):
+        pages = [{"snapshots": {}, "next_page_token": str(i + 1)} for i in range(20)]
+        pages.append({"snapshots": {}, "next_page_token": None})
+        reader = MarketDataReader(CREDS, opener=FakeOpener(pages))
+        self.assertEqual(reader.option_chain("SPY", "2026-10-01", "2026-11-01"), [])
+
     def test_option_chain_rejects_bad_page_bound(self):
         reader = MarketDataReader(CREDS, opener=FakeOpener([{}]))
         with self.assertRaises(LedgerError):

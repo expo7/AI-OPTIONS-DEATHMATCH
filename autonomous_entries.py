@@ -87,7 +87,7 @@ def _rotation_index(ledger):
 def _fetch_market(reader, underlying, captured_at):
     bars = reader.daily_bars(underlying, limit=30)
     price_cents = reader.latest_trade_price_cents(underlying)
-    expiration_gte = captured_at.date().isoformat()
+    expiration_gte = (captured_at + timedelta(days=COMMON_RULES["days_to_expiry"]["minimum"])).date().isoformat()
     expiration_lte = (captured_at + timedelta(days=COMMON_RULES["days_to_expiry"]["maximum"])).date().isoformat()
     contracts = reader.option_chain(underlying, expiration_gte, expiration_lte)
     return bars, price_cents, contracts

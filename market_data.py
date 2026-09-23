@@ -81,7 +81,7 @@ class MarketDataReader:
             raise LedgerError("no latest trade available")
         return _decimal_cents(trade["p"])
 
-    def option_chain(self, underlying, expiration_gte, expiration_lte, max_pages=20, page_size=100):
+    def option_chain(self, underlying, expiration_gte, expiration_lte, max_pages=100, page_size=100):
         """Join current Alpaca quotes to Yahoo OI by exact OCC symbol."""
         if not isinstance(max_pages, int) or not 1 <= max_pages <= 100:
             raise LedgerError("page bound outside 1..100")
