@@ -87,6 +87,7 @@ class MarketDataReader:
             raise LedgerError("page bound outside 1..100")
         contracts = []
         self.last_diagnostics = {"alpaca_contracts": 0, "yahoo_matched": 0, "combined": 0}
+        raw_quotes = {}
         page_token = None
         seen_tokens = set()
         for _ in range(max_pages):
@@ -101,6 +102,7 @@ class MarketDataReader:
             if not isinstance(snapshots, dict):
                 raise LedgerError("options snapshot page is not a mapping")
             for option_symbol, snapshot in snapshots.items():
+                raw_quotes[option_symbol] = snapshot.get("latestQuote") if isinstance(snapshot, dict) else None
                 contract = _normalize_contract(option_symbol, snapshot)
                 if contract is not None:
                     contracts.append(contract)
@@ -124,6 +126,11 @@ class MarketDataReader:
         yahoo_diagnostics = getattr(self.yahoo, "last_diagnostics", None)
         if isinstance(yahoo_diagnostics, Mapping):
             self.last_diagnostics.update(yahoo_diagnostics)
+            self.last_diagnostics["high_oi_quote_status"] = [
+                {"symbol": symbol, "alpaca_snapshot": symbol in raw_quotes,
+                 "alpaca_quote": isinstance(raw_quotes.get(symbol), dict),
+                 "normalized_quote": any(c["symbol"] == symbol for c in contracts)}
+                for symbol in yahoo_diagnostics.get("yahoo_high_oi_symbols", [])]
         self.last_diagnostics["yahoo_matched"] = sum(c["symbol"] in liquidity for c in contracts)
         combined = []
         observed_at = datetime.now(timezone.utc).isoformat()
@@ -171,7 +178,7 @@ class YahooLiquidityReader:
         matched = {}
         duplicates = set()
         self.last_diagnostics = {"yahoo_raw_contracts": 0, "yahoo_raw_max_oi": None,
-                                 "yahoo_raw_oi_at_least_500": 0}
+                                 "yahoo_raw_oi_at_least_500": 0, "yahoo_high_oi_symbols": []}
         for expiration in sorted(expirations & available):
             try:
                 chain = ticker.option_chain(expiration)
@@ -184,6 +191,8 @@ class YahooLiquidityReader:
                                 raw_oi, self.last_diagnostics["yahoo_raw_max_oi"] or 0)
                             if raw_oi >= 500:
                                 self.last_diagnostics["yahoo_raw_oi_at_least_500"] += 1
+                                if len(self.last_diagnostics["yahoo_high_oi_symbols"]) < 5:
+                                    self.last_diagnostics["yahoo_high_oi_symbols"].append(row.get("contractSymbol"))
                         symbol = row.get("contractSymbol")
                         try:
                             parsed = parse_occ_symbol(symbol)
