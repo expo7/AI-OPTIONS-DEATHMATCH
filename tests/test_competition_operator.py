@@ -1,9 +1,10 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from bots import BOTS
-from competition_operator import mark, open_lot_cost_cents, option_expiration, stage_plan
+from competition_operator import auto_manage_exits, mark, open_lot_cost_cents, option_expiration, stage_plan
 from generation_one import BOT_RULES, frozen_rules
 from ledger import Ledger, LedgerError
 
@@ -97,6 +98,61 @@ class CompetitionOperatorTest(unittest.TestCase):
         self.db.record_fill("fill-1", order, 1, 880, WHEN)
         self.assertEqual(open_lot_cost_cents(self.db, "trend", "QQQ261009C00745000"), 88_000)
         self.assertEqual(option_expiration("QQQ261009C00745000").isoformat(), "2026-10-09")
+
+    def test_auto_manage_exits_submits_due_position_and_skips_pending(self):
+        plan = self.plan()
+        stage_plan(self.db, plan)
+        self.db.accept_order("dm-g1-trend-1-164530", "broker-1")
+        self.db.record_fill("fill-1", "dm-g1-trend-1-164530", 1, 880, WHEN)
+
+        positions = {
+            "trend": [{
+                "symbol": "QQQ261009C00745000", "quantity": 1, "mark_cents": 100,
+                "exit_signals": ["risk_limit"], "exit_due": True, "exit_policy_id": "g1-lifecycle-v1",
+            }],
+            "reversal": [],
+        }
+
+        class Reader:
+            def account(self):
+                return {"status": "ACTIVE", "trading_blocked": False, "account_blocked": False,
+                         "trade_suspended_by_user": False}
+
+            def open_orders(self):
+                return []
+
+            def positions(self):
+                return [{"symbol": "QQQ261009C00745000", "qty": "1"}]
+
+        class Submitter:
+            def __init__(self, credentials, token):
+                pass
+
+            def post_order(self, payload):
+                return {"id": "broker-exit-1", "client_order_id": payload["client_order_id"],
+                         "symbol": payload["symbol"], "side": "sell", "qty": payload["qty"],
+                         "type": "limit", "limit_price": payload["limit_price"], "status": "accepted"}
+
+        with patch("competition_operator.load_credentials", return_value={
+            "APCA_API_BASE_URL": "https://paper-api.alpaca.markets",
+            "APCA_API_KEY_ID": "id", "APCA_API_SECRET_KEY": "secret",
+        }), patch("competition_operator.PaperReader", return_value=Reader()), \
+                patch("competition_operator.PaperSubmitter", Submitter):
+            results = auto_manage_exits(self.db, "unused", positions)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["status"], "submitted")
+        order = self.db.db.execute(
+            "SELECT * FROM orders WHERE bot_id='trend' AND side='sell'"
+        ).fetchone()
+        self.assertEqual(order["status"], "accepted")
+
+        # A second call must not duplicate the exit while it is unresolved.
+        with patch("competition_operator.load_credentials", return_value={}), \
+                patch("competition_operator.PaperReader", return_value=Reader()), \
+                patch("competition_operator.PaperSubmitter", Submitter):
+            again = auto_manage_exits(self.db, "unused", positions)
+        self.assertEqual(again[0]["status"], "already_pending")
 
 
 if __name__ == "__main__":

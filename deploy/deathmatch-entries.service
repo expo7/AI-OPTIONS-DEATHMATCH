@@ -1,0 +1,16 @@
+[Unit]
+Description=AI Options Deathmatch autonomous Generation 1 entry decisions
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/ai-options-deathmatch
+ExecStart=/usr/bin/python3 /opt/ai-options-deathmatch/autonomous_entries.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ai-options-deathmatch /run/lock

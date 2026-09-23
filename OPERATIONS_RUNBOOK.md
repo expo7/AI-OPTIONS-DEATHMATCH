@@ -93,7 +93,20 @@ Install the root-only five-minute updater once after deployment:
 sudo bash deploy/install-operations.sh
 ```
 
-The timer checks Alpaca's market clock and exits without touching the ledger when the market is closed. While open, it synchronizes attributed fills before recording and publishing a common mark. It never stages decisions or submits, replaces, or cancels orders.
+The timer checks Alpaca's market clock and exits without touching the ledger when the market is closed. While open, it synchronizes attributed fills, records and publishes a common mark, then automatically stages and submits a closing order for any position whose lifecycle policy signals it is due. It never stages or submits an opening (buy) order; opening orders are handled only by the supervised launch cycle above or the autonomous entry cycle below. A symbol already carrying an unresolved order is skipped rather than re-staged, so a duplicate scheduled run or a slow fill cannot duplicate an exit order.
+
+## Autonomous entry cycle
+
+`autonomous_entries.py`, installed by the same `deploy/install-operations.sh` script as its own `deathmatch-entries.timer` (every 30 minutes, independent of the 5-minute update timer), lets every Generation 1 contender independently evaluate a shared market snapshot and propose a buy or an honest decline:
+
+```bash
+python3 autonomous_entries.py --ledger /var/lib/ai-options-deathmatch/ledger.sqlite3 \
+  --env-file /etc/ai-options-deathmatch/alpaca.env
+```
+
+Each cycle: skips if the market is closed; skips if this cadence window (floored to 30 minutes) already has recorded decisions, so a duplicate timer firing or a restart cannot re-fetch data or double-submit; fetches daily bars, the latest trade price, and a normalized, liquidity-filtered option chain for a fixed universe (`SPY`, `QQQ`, `AAPL`, `MSFT`, `NVDA`) via `market_data.py`; runs each bot's independent strategy from `strategies.py` against that shared snapshot, skipping any bot already at the frozen `max_open_positions` cap; if more than one bot proposes a genuine buy, keeps exactly one via a deterministic rotation over prior auto-generated cycles (preserving the existing single-buy-per-launch-cycle rule) and downgrades the rest to an honest "another contender was selected this cycle" decline; and stages, then attempts to submit, the result through the same unchanged `stage_plan`/`submit` gates used by the supervised cycle. A market-data failure (missing bars, missing quote, missing open interest, or any malformed field) causes that specific underlying or contract to be excluded, never a fabricated value; if every underlying fails to produce a valid contract, every bot simply declines that cycle.
+
+The launch cycle permits at most one buy. It requires all five decisions, forces the cash benchmark to decline, checks expiry, open interest, volume, spread, premium, and exact frozen-ask pricing, and fails closed if broker inventory or local attribution does not reconcile.
 
 ## Supervised exits
 
