@@ -1,6 +1,7 @@
 """Read-only production proof of paper access and an OCC-matched liquid contract."""
 
 import json
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from alpaca_readonly import PaperReader, load_credentials
@@ -16,6 +17,7 @@ def check(env_file="/etc/ai-options-deathmatch/alpaca.env"):
     if account.get("status") != "ACTIVE" or int(account.get("options_trading_level") or 0) < 1:
         raise LedgerError("paper account is not active for options")
     reader = MarketDataReader(credentials)
+    summary = []
     now = datetime.now(timezone.utc)
     start = now.date() + timedelta(days=COMMON_RULES["days_to_expiry"]["minimum"])
     end = now.date() + timedelta(days=COMMON_RULES["days_to_expiry"]["maximum"])
@@ -25,14 +27,19 @@ def check(env_file="/etc/ai-options-deathmatch/alpaca.env"):
         if expiry.weekday() != 4:
             continue
         contracts = reader.option_chain("SPY", expiry.isoformat(), expiry.isoformat())
+        reasons = Counter()
         for contract in contracts:
             try:
                 _validate_contract(contract, now)
-            except LedgerError:
+            except LedgerError as error:
+                reasons[str(error)] += 1
                 continue
             return {key: contract[key] for key in (
                 "symbol", "bid_cents", "ask_cents", "open_interest", "volume",
                 "quote_source", "open_interest_source", "volume_source", "liquidity_observed_at")}
+        summary.append({"expiration": expiry.isoformat(), **reader.last_diagnostics,
+                        "rejections": dict(reasons)})
+    print(json.dumps({"paper_account": "ACTIVE", "diagnostics": summary}, sort_keys=True))
     raise LedgerError("no combined SPY contract passed liquidity validation")
 
 
