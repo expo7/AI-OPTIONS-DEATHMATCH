@@ -121,6 +121,9 @@ class MarketDataReader:
             return []
         if not isinstance(liquidity, Mapping):
             return []
+        yahoo_diagnostics = getattr(self.yahoo, "last_diagnostics", None)
+        if isinstance(yahoo_diagnostics, Mapping):
+            self.last_diagnostics.update(yahoo_diagnostics)
         self.last_diagnostics["yahoo_matched"] = sum(c["symbol"] in liquidity for c in contracts)
         combined = []
         observed_at = datetime.now(timezone.utc).isoformat()
@@ -167,11 +170,20 @@ class YahooLiquidityReader:
             raise LedgerError("Yahoo expiration lookup failed") from error
         matched = {}
         duplicates = set()
+        self.last_diagnostics = {"yahoo_raw_contracts": 0, "yahoo_raw_max_oi": None,
+                                 "yahoo_raw_oi_at_least_500": 0}
         for expiration in sorted(expirations & available):
             try:
                 chain = ticker.option_chain(expiration)
                 for option_type, frame in (("call", chain.calls), ("put", chain.puts)):
                     for row in frame.to_dict("records"):
+                        self.last_diagnostics["yahoo_raw_contracts"] += 1
+                        raw_oi = _nonnegative_integer(row.get("openInterest"))
+                        if raw_oi is not None:
+                            self.last_diagnostics["yahoo_raw_max_oi"] = max(
+                                raw_oi, self.last_diagnostics["yahoo_raw_max_oi"] or 0)
+                            if raw_oi >= 500:
+                                self.last_diagnostics["yahoo_raw_oi_at_least_500"] += 1
                         symbol = row.get("contractSymbol")
                         try:
                             parsed = parse_occ_symbol(symbol)
