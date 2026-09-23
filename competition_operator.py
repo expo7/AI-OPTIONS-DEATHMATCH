@@ -35,7 +35,7 @@ def _validate_contract(contract, captured_at):
         raise LedgerError("candidate contract metadata is incomplete")
     bid, ask = contract["bid_cents"], contract["ask_cents"]
     values = (bid, ask, contract["open_interest"], contract["volume"])
-    if not all(isinstance(value, int) and value >= 0 for value in values) or ask <= 0 or bid >= ask:
+    if not all(type(value) is int and value >= 0 for value in values) or bid <= 0 or ask <= 0 or bid >= ask:
         raise LedgerError("candidate contract quote or activity is invalid")
     try:
         days = (date.fromisoformat(contract["expiration"]) - captured_at.date()).days

@@ -127,3 +127,19 @@ python3 competition_operator.py submit-exit CLIENT_ORDER_ID \
 The exit boundary cannot sell another bot's holdings or more contracts than the attributed bot owns. It requires an immutable exit decision, an exact linked reservation, a flat open-order inventory, live broker-to-ledger reconciliation, the paper endpoint, and the explicit confirmation token.
 
 The launch cycle permits at most one buy. It requires all five decisions, forces the cash benchmark to decline, checks expiry, open interest, volume, spread, premium, and exact frozen-ask pricing, and fails closed if broker inventory or local attribution does not reconcile.
+# Yahoo liquidity and release bootstrap
+
+Alpaca option snapshots provide bid/ask while Yahoo Finance via yfinance
+provides delayed open interest and volume. Exact OCC symbols are joined; missing
+or malformed liquidity excludes the candidate. The service uses a dedicated
+Python environment at `/opt/ai-options-deathmatch-venv`. The release command
+installs dependencies, installs the repository's operational units, and checks
+both timers before reporting success.
+
+**One-time migration from releases before this change:** the installed
+`/usr/local/sbin/deathmatch-release` is a root-owned *copy* of the old script.
+After the new commit is on `master`, run the existing release for the exact
+commit, then on the server run `sudo ./deploy/install-release.sh` from
+`/opt/ai-options-deathmatch` and invoke the new release once more. Do not
+run the entry service until the second release succeeds. Check both timer
+states and next runs with `systemctl list-timers --all deathmatch-*.timer`.
