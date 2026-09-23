@@ -11,10 +11,10 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from alpaca_readonly import PaperReader, load_credentials, premium_cents, sync_fill_activities
-from alpaca_submit import PaperSubmitter, submit_reserved_exit, submit_reserved_order
+from alpaca_submit import EXECUTION_ENABLE_TOKEN, PaperSubmitter, submit_reserved_exit, submit_reserved_order
 from bots import BOTS
 from generation_one import BOT_RULES, COMMON_RULES, GENERATION
-from ledger import Ledger, LedgerError
+from ledger import OPEN_STATUSES, Ledger, LedgerError
 from lifecycle_policy import POLICY_ID, exit_signals
 from public_data import write_public_results
 
@@ -230,7 +230,53 @@ def mark(ledger, env_file, public_results, occurred_at=None):
     published = write_public_results(ledger, public_results, timestamp, public_positions)
     exits_due = sum(position["exit_due"] for rows in public_positions.values() for position in rows)
     return {"marked_at": timestamp, "contenders": len(equities), "published": published,
-            "open_positions": sum(map(len, public_positions.values())), "expiry_exits_due": exits_due}
+            "open_positions": sum(map(len, public_positions.values())), "expiry_exits_due": exits_due,
+            "positions": public_positions}
+
+
+def auto_manage_exits(ledger, env_file, public_positions):
+    """Automatically stage and submit exits for positions with a due signal.
+
+    This only decides *when* to close a position. Every existing safety gate
+    in ``stage_exit``/``submit_reserved_exit`` still applies unchanged: exact
+    ownership, live broker reconciliation, immutable decision linkage, and one
+    unresolved order per exact contract. A symbol already carrying an
+    unresolved order (for example a prior automatic exit still awaiting a
+    fill) is skipped rather than re-staged, so a duplicate scheduled run or a
+    slow fill cannot duplicate an exit order.
+    """
+    results = []
+    for bot_id, positions in public_positions.items():
+        for position in positions:
+            if not position["exit_due"]:
+                continue
+            symbol = position["symbol"]
+            placeholders = ",".join("?" * len(OPEN_STATUSES))
+            pending = ledger.db.execute(
+                f"SELECT 1 FROM orders WHERE symbol=? AND status IN ({placeholders}) LIMIT 1",
+                (symbol, *OPEN_STATUSES),
+            ).fetchone()
+            if pending:
+                results.append({"bot_id": bot_id, "symbol": symbol, "status": "already_pending"})
+                continue
+            reason = "expiry_rule" if "expiry_rule" in position["exit_signals"] else position["exit_signals"][0]
+            rationale = (f"Automatic exit: {', '.join(position['exit_signals'])} "
+                         f"under lifecycle policy {position['exit_policy_id']}.")
+            try:
+                staged = stage_exit(ledger, bot_id, symbol, position["quantity"],
+                                    position["mark_cents"], reason, rationale)
+                credentials = load_credentials(env_file)
+                broker_id = submit_reserved_exit(
+                    ledger, PaperReader(credentials),
+                    PaperSubmitter(credentials, EXECUTION_ENABLE_TOKEN),
+                    staged["reserved_order"],
+                )
+                results.append({"bot_id": bot_id, "symbol": symbol, "status": "submitted",
+                                "broker_order_id": broker_id})
+            except LedgerError as error:
+                results.append({"bot_id": bot_id, "symbol": symbol, "status": "not_submitted",
+                                "reason": str(error)})
+    return results
 
 
 def option_expiration(symbol):

@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from alpaca_readonly import PaperReader, load_credentials
-from competition_operator import mark, sync
+from competition_operator import auto_manage_exits, mark, sync
 from ledger import Ledger, LedgerError
 
 
@@ -26,7 +26,8 @@ def run_update(ledger_path, env_file, public_results, lock_path):
             try:
                 fills = sync(ledger, env_file)
                 result = mark(ledger, env_file, public_results)
-                return {"status": "updated", "fills": fills, "mark": result}
+                exits = auto_manage_exits(ledger, env_file, result["positions"])
+                return {"status": "updated", "fills": fills, "mark": result, "exits": exits}
             finally:
                 ledger.close()
         except (LedgerError, OSError, ValueError) as error:

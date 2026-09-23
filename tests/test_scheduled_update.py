@@ -33,12 +33,15 @@ class ScheduledUpdateTest(unittest.TestCase):
              patch("scheduled_update.PaperReader", return_value=Reader()), \
              patch("scheduled_update.Ledger", return_value=fake_ledger), \
              patch("scheduled_update.sync", return_value={"seen": 1, "inserted": 0}) as syncing, \
-             patch("scheduled_update.mark", return_value={"published": 5}) as marking:
+             patch("scheduled_update.mark", return_value={"published": 5, "positions": {}}) as marking, \
+             patch("scheduled_update.auto_manage_exits", return_value=[]) as exiting:
             result = run_update("ledger.sqlite3", "paper.env", "results.json",
                                 Path(directory) / "update.lock")
         syncing.assert_called_once_with(fake_ledger, "paper.env")
         marking.assert_called_once_with(fake_ledger, "paper.env", "results.json")
+        exiting.assert_called_once_with(fake_ledger, "paper.env", {})
         self.assertEqual(result["status"], "updated")
+        self.assertEqual(result["exits"], [])
 
     def test_broker_error_returns_structured_result_instead_of_raising(self):
         class Reader:
