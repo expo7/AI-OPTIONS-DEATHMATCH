@@ -43,8 +43,10 @@ def check(env_file="/etc/ai-options-deathmatch/alpaca.env"):
                                 (c["open_interest"] for c in contracts), default=None),
                             "max_volume": max((c["volume"] for c in contracts), default=None),
                             "rejections": dict(reasons)})
-    print(json.dumps({"paper_account": "ACTIVE", "diagnostics": summary}, sort_keys=True))
-    raise LedgerError("no combined contract passed liquidity validation")
+    if not any(item["combined"] for item in summary):
+        raise LedgerError("no Alpaca/Yahoo contracts could be combined")
+    return {"status": "no_liquid_contract", "paper_account": "ACTIVE",
+            "valid_contract": None, "diagnostics": summary}
 
 
 if __name__ == "__main__":

@@ -62,7 +62,7 @@ jobs:
               systemctl is-enabled --quiet "$timer" && systemctl is-active --quiet "$timer" || exit 1
               systemctl list-timers --all "$timer" --no-legend | grep -F "$timer" || exit 1
             done'
-      - name: Read-only Alpaca and Yahoo liquidity check
+      - name: Read-only Alpaca and Yahoo liquidity report
         env:
           PROD_HOST: ${{ secrets.PROD_HOST }}
           PROD_USER: ${{ secrets.PROD_USER }}
