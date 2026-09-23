@@ -86,6 +86,7 @@ class MarketDataReader:
         if not isinstance(max_pages, int) or not 1 <= max_pages <= 100:
             raise LedgerError("page bound outside 1..100")
         contracts = []
+        self.last_diagnostics = {"alpaca_contracts": 0, "yahoo_matched": 0, "combined": 0}
         page_token = None
         seen_tokens = set()
         for _ in range(max_pages):
@@ -113,12 +114,14 @@ class MarketDataReader:
             raise LedgerError("options snapshot pagination exceeded safety bound")
         if not contracts:
             return []
+        self.last_diagnostics["alpaca_contracts"] = len(contracts)
         try:
             liquidity = self.yahoo.chain(underlying, {c["expiration"] for c in contracts})
         except (LedgerError, OSError, ValueError, TypeError, KeyError):
             return []
         if not isinstance(liquidity, Mapping):
             return []
+        self.last_diagnostics["yahoo_matched"] = sum(c["symbol"] in liquidity for c in contracts)
         combined = []
         observed_at = datetime.now(timezone.utc).isoformat()
         for contract in contracts:
@@ -138,6 +141,7 @@ class MarketDataReader:
                             volume_source=volume_source, liquidity_observed_at=observed_at)
             contract.pop("alpaca_volume", None)
             combined.append(contract)
+        self.last_diagnostics["combined"] = len(combined)
         return combined
 
 
