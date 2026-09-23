@@ -18,6 +18,21 @@ git_deploy merge-base --is-ancestor "$revision" refs/remotes/origin/master || { 
 
 previous=$(git_deploy rev-parse HEAD)
 git_deploy checkout --detach "$revision"
+cd "$repo"
+# Update the root-owned release entry point and operational units from the exact
+# verified revision. A release is incomplete if either scheduled timer is absent.
+install -o root -g root -m 755 deploy/release.sh /usr/local/sbin/deathmatch-release
+if [[ ! -x /opt/ai-options-deathmatch-venv/bin/python ]] ||
+   ! /opt/ai-options-deathmatch-venv/bin/python -c 'import yfinance' >/dev/null 2>&1; then
+    /usr/bin/python3 -m venv /opt/ai-options-deathmatch-venv
+    /opt/ai-options-deathmatch-venv/bin/pip install --disable-pip-version-check -r requirements-operations.txt
+fi
+./deploy/install-operations.sh
+for timer in deathmatch-update.timer deathmatch-entries.timer; do
+    systemctl is-enabled --quiet "$timer"
+    systemctl is-active --quiet "$timer"
+    systemctl list-timers --all "$timer" --no-legend | grep -Fq "$timer"
+done
 printf 'APP_COMMIT=%s\nRESULTS_PUBLIC=true\nLEDGER_PATH=/var/lib/ai-options-deathmatch-public/results.json\n' "$revision" >/etc/ai-options-deathmatch.env
 chmod 644 /etc/ai-options-deathmatch.env
 systemctl restart deathmatch

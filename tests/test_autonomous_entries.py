@@ -43,6 +43,13 @@ class FlatMarketReader(FakeMarketReader):
         return bars([100] * 25)
 
 
+class PartialOutageReader(FakeMarketReader):
+    def option_chain(self, underlying, *args, **kwargs):
+        if underlying == "SPY":
+            raise OSError("provider unavailable")
+        return super().option_chain(underlying, *args, **kwargs)
+
+
 class BuildPlanTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -74,6 +81,11 @@ class BuildPlanTest(unittest.TestCase):
     def test_flat_market_produces_all_declines(self):
         plan = build_plan(self.db, FlatMarketReader(), NOW)
         self.assertTrue(all(d["action"] == "decline" for d in plan["decisions"]))
+
+    def test_one_ticker_outage_does_not_crash_other_candidates(self):
+        plan = build_plan(self.db, PartialOutageReader(), NOW)
+        self.assertTrue(plan["market"]["contracts"])
+        self.assertTrue(all(c["underlying"] != "SPY" for c in plan["market"]["contracts"] if "underlying" in c))
 
     def test_position_limit_forces_decline(self):
         with patch("autonomous_entries._open_position_count", return_value=3):

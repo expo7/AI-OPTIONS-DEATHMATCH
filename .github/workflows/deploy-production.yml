@@ -13,7 +13,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python3 -m unittest discover -s tests
-      - run: bash -n deploy/bootstrap-server.sh deploy/release.sh deploy/install-release.sh
+      - run: bash -n deploy/bootstrap-server.sh deploy/release.sh deploy/install-release.sh deploy/install-operations.sh
 
   deploy:
     needs: verify
@@ -52,3 +52,13 @@ jobs:
             sleep 2
           done
           exit 1
+      - name: Verify both autonomous timers
+        env:
+          PROD_HOST: ${{ secrets.PROD_HOST }}
+          PROD_USER: ${{ secrets.PROD_USER }}
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$PROD_USER@$PROD_HOST" '
+            for timer in deathmatch-update.timer deathmatch-entries.timer; do
+              systemctl is-enabled --quiet "$timer" && systemctl is-active --quiet "$timer" || exit 1
+              systemctl list-timers --all "$timer" --no-legend | grep -F "$timer" || exit 1
+            done'

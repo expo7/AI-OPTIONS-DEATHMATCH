@@ -87,7 +87,7 @@ def _rotation_index(ledger):
 def _fetch_market(reader, underlying, captured_at):
     bars = reader.daily_bars(underlying, limit=30)
     price_cents = reader.latest_trade_price_cents(underlying)
-    expiration_gte = captured_at.date().isoformat()
+    expiration_gte = (captured_at + timedelta(days=COMMON_RULES["days_to_expiry"]["minimum"])).date().isoformat()
     expiration_lte = (captured_at + timedelta(days=COMMON_RULES["days_to_expiry"]["maximum"])).date().isoformat()
     contracts = reader.option_chain(underlying, expiration_gte, expiration_lte)
     return bars, price_cents, contracts
@@ -109,7 +109,10 @@ def build_plan(ledger, market_reader, now):
     proposals = {}
     per_underlying = {}
     for underlying in UNIVERSE:
-        bars, price_cents, contracts = _fetch_market(market_reader, underlying, now)
+        try:
+            bars, price_cents, contracts = _fetch_market(market_reader, underlying, now)
+        except (LedgerError, OSError, ValueError, KeyError, TypeError):
+            continue
         valid_contracts = [c for c in contracts if _valid_contract(c, now)]
         all_contracts.extend(valid_contracts)
         per_underlying[underlying] = (bars, valid_contracts, price_cents)
@@ -120,6 +123,8 @@ def build_plan(ledger, market_reader, now):
         at_position_limit = _open_position_count(ledger, bot.slug) >= COMMON_RULES["max_open_positions"]
         if not at_position_limit:
             for underlying in UNIVERSE:
+                if underlying not in per_underlying:
+                    continue
                 bars, valid_contracts, price_cents = per_underlying[underlying]
                 candidate = strategy(underlying, bars, valid_contracts, price_cents)
                 if candidate["action"] == "buy":

@@ -1,4 +1,4 @@
-"""Paper-credentialed, GET-only Alpaca Market Data adapter.
+"""Paper-credentialed, GET-only Alpaca data with Yahoo liquidity augmentation.
 
 This module never submits an order and never contacts the trading endpoint;
 it only reads public market data (bars, latest trade, options snapshots)
@@ -9,6 +9,8 @@ unavailable data entitlement causes callers to abstain instead of guessing.
 """
 
 import json
+import math
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
@@ -28,11 +30,12 @@ class MarketDataReader:
     modify, or cancel an order at any endpoint, paper or live.
     """
 
-    def __init__(self, credentials, opener=urlopen):
+    def __init__(self, credentials, opener=urlopen, yahoo=None):
         if not credentials.get("APCA_API_KEY_ID") or not credentials.get("APCA_API_SECRET_KEY"):
             raise LedgerError("paper key and secret are required")
         self.credentials = credentials
         self.opener = opener
+        self.yahoo = yahoo if yahoo is not None else YahooLiquidityReader()
 
     def _get(self, path, params=None):
         if not (path.startswith("/v2/") or path.startswith("/v1beta1/")) or "?" in path or "//" in path:
@@ -78,13 +81,8 @@ class MarketDataReader:
             raise LedgerError("no latest trade available")
         return _decimal_cents(trade["p"])
 
-    def option_chain(self, underlying, expiration_gte, expiration_lte, max_pages=20, page_size=100):
-        """Return normalized, liquidity-complete option contracts, oldest page first.
-
-        A contract missing any required field (including open interest, which
-        some data entitlements do not provide) is silently excluded rather
-        than filled in with an invented value.
-        """
+    def option_chain(self, underlying, expiration_gte, expiration_lte, max_pages=100, page_size=100):
+        """Join current Alpaca quotes to Yahoo OI by exact OCC symbol."""
         if not isinstance(max_pages, int) or not 1 <= max_pages <= 100:
             raise LedgerError("page bound outside 1..100")
         contracts = []
@@ -107,11 +105,98 @@ class MarketDataReader:
                     contracts.append(contract)
             page_token = payload.get("next_page_token")
             if not page_token:
-                return contracts
+                break
             if page_token in seen_tokens:
                 raise LedgerError("options snapshot pagination repeated a token")
             seen_tokens.add(page_token)
-        raise LedgerError("options snapshot pagination exceeded safety bound")
+        else:
+            raise LedgerError("options snapshot pagination exceeded safety bound")
+        if not contracts:
+            return []
+        try:
+            liquidity = self.yahoo.chain(underlying, {c["expiration"] for c in contracts})
+        except (LedgerError, OSError, ValueError, TypeError, KeyError):
+            return []
+        if not isinstance(liquidity, Mapping):
+            return []
+        combined = []
+        observed_at = datetime.now(timezone.utc).isoformat()
+        for contract in contracts:
+            row = liquidity.get(contract["symbol"])
+            if not isinstance(row, Mapping):
+                continue
+            oi = _nonnegative_integer(row.get("open_interest"))
+            volume = _nonnegative_integer(row.get("volume"))
+            volume_source = "yahoo_delayed"
+            if volume is None:
+                volume = contract.pop("alpaca_volume", None)
+                volume_source = "alpaca"
+            if oi is None or volume is None:
+                continue
+            contract.update(open_interest=oi, volume=volume,
+                            quote_source="alpaca", open_interest_source="yahoo_delayed",
+                            volume_source=volume_source, liquidity_observed_at=observed_at)
+            contract.pop("alpaca_volume", None)
+            combined.append(contract)
+        return combined
+
+
+class YahooLiquidityReader:
+    """Read delayed Yahoo option chains via yfinance; never infer missing values."""
+
+    def __init__(self, ticker_factory=None):
+        self.ticker_factory = ticker_factory
+
+    def chain(self, underlying, expirations):
+        if self.ticker_factory is None:
+            try:
+                import yfinance
+            except ImportError:
+                raise LedgerError("yfinance is unavailable") from None
+            factory = yfinance.Ticker
+        else:
+            factory = self.ticker_factory
+        try:
+            ticker = factory(underlying)
+            available = set(ticker.options)
+        except Exception as error:
+            raise LedgerError("Yahoo expiration lookup failed") from error
+        matched = {}
+        duplicates = set()
+        for expiration in sorted(expirations & available):
+            try:
+                chain = ticker.option_chain(expiration)
+                for option_type, frame in (("call", chain.calls), ("put", chain.puts)):
+                    for row in frame.to_dict("records"):
+                        symbol = row.get("contractSymbol")
+                        try:
+                            parsed = parse_occ_symbol(symbol)
+                        except LedgerError:
+                            continue
+                        if parsed[:3] != (underlying, datetime.fromisoformat(expiration).date(), option_type):
+                            continue
+                        if symbol in matched or symbol in duplicates:
+                            matched.pop(symbol, None)
+                            duplicates.add(symbol)
+                            continue
+                        matched[symbol] = {"open_interest": row.get("openInterest"),
+                                           "volume": row.get("volume")}
+            except Exception:
+                # One broken expiry must not prevent the remaining expiries from being assessed.
+                continue
+        return matched
+
+
+def _nonnegative_integer(value):
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(number) or number < 0 or not number.is_integer():
+        return None
+    return int(number)
 
 
 def _decimal_cents(value):
@@ -149,22 +234,20 @@ def _normalize_contract(option_symbol, snapshot):
     if not isinstance(snapshot, dict):
         return None
     quote = snapshot.get("latestQuote")
-    daily_bar = snapshot.get("dailyBar")
-    open_interest = snapshot.get("openInterest")
-    if not isinstance(quote, dict) or not isinstance(daily_bar, dict) or open_interest is None:
+    if not isinstance(quote, dict):
         return None
     try:
         bid_cents = _decimal_cents(quote["bp"]) if quote.get("bp") else 0
         ask_cents = _decimal_cents(quote["ap"])
-        volume = int(daily_bar["v"])
-        open_interest = int(open_interest)
+        bar = snapshot.get("dailyBar")
+        alpaca_volume = _nonnegative_integer(bar.get("v")) if isinstance(bar, dict) else None
     except (KeyError, TypeError, ValueError, InvalidOperation, LedgerError):
         return None
-    if bid_cents < 0 or volume < 0 or open_interest < 0:
+    if bid_cents <= 0 or bid_cents >= ask_cents:
         return None
     return {
         "symbol": option_symbol, "underlying": underlying, "option_type": option_type,
         "strike_cents": strike_cents, "expiration": expiration.isoformat(),
         "bid_cents": bid_cents, "ask_cents": ask_cents,
-        "open_interest": open_interest, "volume": volume,
+        "alpaca_volume": alpaca_volume,
     }

@@ -3,7 +3,7 @@ import unittest
 from io import BytesIO
 
 from ledger import LedgerError
-from market_data import MarketDataReader, parse_occ_symbol
+from market_data import MarketDataReader, YahooLiquidityReader, parse_occ_symbol
 
 
 class FakeResponse:
@@ -76,19 +76,67 @@ class MarketDataReaderTest(unittest.TestCase):
                 # openInterest missing entirely -- must be excluded, not defaulted.
             },
         }
+        class Yahoo:
+            def chain(self, underlying, expirations):
+                return {"SPY261009C00500000": {"open_interest": 1000, "volume": 500}}
         reader = MarketDataReader(CREDS, opener=FakeOpener([
             {"snapshots": snapshots, "next_page_token": None},
-        ]))
+        ]), yahoo=Yahoo())
         contracts = reader.option_chain("SPY", "2026-10-01", "2026-11-01")
         self.assertEqual(len(contracts), 1)
         self.assertEqual(contracts[0]["symbol"], "SPY261009C00500000")
         self.assertEqual(contracts[0]["option_type"], "call")
+        self.assertEqual(contracts[0]["quote_source"], "alpaca")
+        self.assertEqual(contracts[0]["open_interest_source"], "yahoo_delayed")
+
+    def test_yahoo_missing_or_unavailable_fails_closed(self):
+        snapshots = {"SPY261009C00500000": {"latestQuote": {"bp": 1, "ap": 1.05}}}
+        class Yahoo:
+            def __init__(self, data): self.data = data
+            def chain(self, *_):
+                if isinstance(self.data, Exception): raise self.data
+                return self.data
+        for data in ({}, {"SPY261009C00500000": {"open_interest": None, "volume": 200}},
+                     {"SPY261009C00500000": {"open_interest": "nan", "volume": 200}},
+                     OSError("Yahoo unavailable")):
+            reader = MarketDataReader(CREDS, opener=FakeOpener([{"snapshots": snapshots}]), yahoo=Yahoo(data))
+            self.assertEqual(reader.option_chain("SPY", "2026-10-01", "2026-11-01"), [])
+
+    def test_bad_alpaca_quote_fails_closed(self):
+        class Yahoo:
+            def chain(self, *_): return {"SPY261009C00500000": {"open_interest": 1000, "volume": 500}}
+        for quote in ({"bp": 1}, {"bp": 0, "ap": 1}, {"bp": 1.1, "ap": 1}):
+            reader = MarketDataReader(CREDS, opener=FakeOpener([{"snapshots": {
+                "SPY261009C00500000": {"latestQuote": quote}}}]), yahoo=Yahoo())
+            self.assertEqual(reader.option_chain("SPY", "2026-10-01", "2026-11-01"), [])
+
+    def test_yahoo_contract_identity_and_expiration(self):
+        class Frame:
+            def __init__(self, rows): self.rows = rows
+            def to_dict(self, orient): return self.rows
+        class Ticker:
+            options = ("2026-10-09",)
+            def option_chain(self, expiry):
+                return type("Chain", (), {"calls": Frame([
+                    {"contractSymbol": "SPY261009C00500000", "openInterest": 1000, "volume": 500},
+                    {"contractSymbol": "QQQ261009C00500000", "openInterest": 1000, "volume": 500},
+                    {"contractSymbol": "SPY261009P00500000", "openInterest": 1000, "volume": 500},
+                ]), "puts": Frame([])})()
+        yahoo = YahooLiquidityReader(ticker_factory=lambda _: Ticker())
+        self.assertEqual(set(yahoo.chain("SPY", {"2026-10-09", "2026-11-01"})),
+                         {"SPY261009C00500000"})
 
     def test_option_chain_pagination_bound_and_repeat_token_detection(self):
         page = {"snapshots": {}, "next_page_token": "same"}
         reader = MarketDataReader(CREDS, opener=FakeOpener([page, page]))
         with self.assertRaises(LedgerError):
             reader.option_chain("SPY", "2026-10-01", "2026-11-01", max_pages=5)
+
+    def test_more_than_twenty_pages_are_allowed_but_bounded(self):
+        pages = [{"snapshots": {}, "next_page_token": str(i + 1)} for i in range(20)]
+        pages.append({"snapshots": {}, "next_page_token": None})
+        reader = MarketDataReader(CREDS, opener=FakeOpener(pages))
+        self.assertEqual(reader.option_chain("SPY", "2026-10-01", "2026-11-01"), [])
 
     def test_option_chain_rejects_bad_page_bound(self):
         reader = MarketDataReader(CREDS, opener=FakeOpener([{}]))
