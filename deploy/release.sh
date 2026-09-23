@@ -24,7 +24,11 @@ cd "$repo"
 install -o root -g root -m 755 deploy/release.sh /usr/local/sbin/deathmatch-release
 if [[ ! -x /opt/ai-options-deathmatch-venv/bin/python ]] ||
    ! /opt/ai-options-deathmatch-venv/bin/python -c 'import yfinance' >/dev/null 2>&1; then
-    /usr/bin/python3 -m venv /opt/ai-options-deathmatch-venv
+    if ! /usr/bin/python3 -m venv /opt/ai-options-deathmatch-venv; then
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y python3.12-venv
+        /usr/bin/python3 -m venv --clear /opt/ai-options-deathmatch-venv
+    fi
     /opt/ai-options-deathmatch-venv/bin/pip install --disable-pip-version-check -r requirements-operations.txt
 fi
 ./deploy/install-operations.sh
