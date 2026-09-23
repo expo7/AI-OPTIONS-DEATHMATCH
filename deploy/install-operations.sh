@@ -10,9 +10,13 @@ set -euo pipefail
 
 install -o root -g root -m 644 deploy/deathmatch-update.service /etc/systemd/system/deathmatch-update.service
 install -o root -g root -m 644 deploy/deathmatch-update.timer /etc/systemd/system/deathmatch-update.timer
+install -o root -g root -m 644 deploy/deathmatch-entries.service /etc/systemd/system/deathmatch-entries.service
+install -o root -g root -m 644 deploy/deathmatch-entries.timer /etc/systemd/system/deathmatch-entries.timer
 install -d -o root -g root -m 755 /var/lib/ai-options-deathmatch-public
 systemctl daemon-reload
 systemctl enable --now deathmatch-update.timer
 systemctl start deathmatch-update.service
 systemctl is-active --quiet deathmatch-update.timer
-echo 'Competition update timer installed and active'
+systemctl enable --now deathmatch-entries.timer
+systemctl is-active --quiet deathmatch-entries.timer
+echo 'Competition update and entry timers installed and active'

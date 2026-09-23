@@ -13,8 +13,34 @@ The next operating layer is now a supervised decision queue. A reviewed shared
 market snapshot can be recorded once, each of the five contenders can append one
 immutable decision, and queue status exposes missing responses. A complete queue
 can be assembled for review or staged into the existing attributed reservation
-flow, but the queue cannot contact Alpaca or submit an order. Automated market
-discovery and model-provider decision generation are not yet implemented.
+flow, but the queue cannot contact Alpaca or submit an order.
+
+Automated market discovery and decision generation are now implemented, code
+reviewed, and unit tested, but **not yet verified against live Alpaca
+endpoints** (this sandbox has no network access or live credentials). A new
+GET-only `market_data.py` adapter reads daily bars, latest trade price, and
+options-chain snapshots from Alpaca's market data API using the same paper
+key/secret; it fails closed (abstains) on any missing or malformed field,
+including `openInterest`, whose presence in this account's actual options
+snapshot response has not been confirmed live. Five per-bot strategies in
+`strategies.py` (trend, reversal, breakout, catalyst, cash) independently
+evaluate a shared daily-bar/option-chain snapshot; catalyst and cash always
+decline honestly since no dated public catalyst feed exists. A new
+`autonomous_entries.py` script, run by its own systemd timer
+(`deathmatch-entries.timer`, every 30 minutes, independent of the existing
+5-minute fill/mark/exit timer) builds one shared, idempotent, time-bucketed
+opportunity per cadence window, lets every bot propose independently, applies
+the existing `max_open_positions` cap and the existing single-buy-per-cycle
+rule via a deterministic rotation if more than one bot wants to buy, and
+stages (and attempts to submit) the result through the unchanged
+`stage_plan`/`submit` gates. **Remaining blocker before this can run
+unattended in production:** confirm live, against the real Alpaca paper
+account, that the options snapshot endpoint actually returns usable
+`latestQuote`/`dailyBar`/`openInterest` data for the configured data
+entitlement; if it does not, every cycle will simply decline for lack of a
+valid contract (fail closed, not fail dangerous), but the goal of routine
+autonomous trades will not be met until that entitlement is confirmed or the
+data source is adjusted.
 
 ## Current status
 

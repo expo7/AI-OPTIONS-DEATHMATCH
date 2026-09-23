@@ -1,0 +1,12 @@
+[Unit]
+Description=Evaluate AI Options Deathmatch Generation 1 entries every 30 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+AccuracySec=1min
+Persistent=true
+Unit=deathmatch-entries.service
+
+[Install]
+WantedBy=timers.target
