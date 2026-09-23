@@ -62,3 +62,11 @@ jobs:
               systemctl is-enabled --quiet "$timer" && systemctl is-active --quiet "$timer" || exit 1
               systemctl list-timers --all "$timer" --no-legend | grep -F "$timer" || exit 1
             done'
+      - name: Read-only Alpaca and Yahoo liquidity check
+        env:
+          PROD_HOST: ${{ secrets.PROD_HOST }}
+          PROD_USER: ${{ secrets.PROD_USER }}
+          REVISION: ${{ github.sha }}
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$PROD_USER@$PROD_HOST" \
+            "sudo /usr/local/sbin/deathmatch-release $REVISION --read-only-market-check"

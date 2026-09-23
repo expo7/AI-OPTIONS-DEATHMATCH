@@ -4,6 +4,12 @@ set -euo pipefail
 # Root-owned copy at /usr/local/sbin/deathmatch-release; callable by deploy.
 revision=${1:-}
 [[ $(id -u) -eq 0 && $(hostname) == ai-options-deathmatch ]] || { echo 'Unexpected execution identity or host' >&2; exit 1; }
+if [[ ${2:-} == --read-only-market-check ]]; then
+    [[ $revision =~ ^[0-9a-f]{40}$ ]] || exit 1
+    [[ $(runuser -u deploy -- git -C /opt/ai-options-deathmatch rev-parse HEAD) == "$revision" ]] || exit 1
+    cd /opt/ai-options-deathmatch
+    exec /opt/ai-options-deathmatch-venv/bin/python readonly_hybrid_check.py
+fi
 [[ $revision =~ ^[0-9a-f]{40}$ ]] || { echo 'Expected a full commit SHA' >&2; exit 1; }
 repo=/opt/ai-options-deathmatch
 [[ $(stat -c %U "$repo") == deploy ]] || { echo 'Unexpected repository owner' >&2; exit 1; }
