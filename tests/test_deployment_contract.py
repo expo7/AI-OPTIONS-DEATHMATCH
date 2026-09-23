@@ -9,7 +9,7 @@ class DeploymentContractTest(unittest.TestCase):
     def test_release_installs_and_verifies_both_timers(self):
         release = (ROOT / "deploy/release.sh").read_text()
         install = (ROOT / "deploy/install-operations.sh").read_text()
-        self.assertIn("./deploy/install-operations.sh", release)
+        self.assertIn("bash deploy/install-operations.sh", release)
         for timer in ("deathmatch-update.timer", "deathmatch-entries.timer"):
             self.assertIn(timer, release)
             self.assertIn(timer, install)
